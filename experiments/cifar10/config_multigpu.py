@@ -73,9 +73,6 @@ def define_flags():
 
     # Optional log dir
     flags.DEFINE_string("my_log_dir", "", "Directory for Abseil logs.")
-    
-
-    #CD
 
 
 def parse_channel_mult(FLAGS):

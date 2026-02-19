@@ -1,9 +1,11 @@
+# File: train_cifar_multigpu.py
+# Adapted from CIFAR-10 for MNIST training.
 import os
 import sys
 import time
 import copy
 import datetime
-import math  # <--- import for ceiling
+import math
 
 import torch
 import torch.distributed as dist
@@ -26,7 +28,6 @@ from torchvision import datasets, transforms
 
 from utils_cifar_imagenet import (
     create_timestamped_dir,
-    generate_samples,
     flow_weight,
     gibbs_sampling_time_sweep,
     warmup_lr,
@@ -35,6 +36,8 @@ from utils_cifar_imagenet import (
     save_pos_neg_grids,
     sde_euler_maruyama
 )
+# NOTE: generate_samples from utils is NOT imported because it hardcodes
+# CIFAR-10 dimensions (3, 32, 32). We use inline MNIST-correct generation below.
 
 
 # 3) Import the EBM model (ViT version)
@@ -55,7 +58,6 @@ def count_parameters(module: torch.nn.Module):
 ##############################################################################
 # Single forward function that computes flow_loss + cd_loss in one go,
 # but now uses separate mini-batches: x_real_flow for flow, x_real_cd for CD.
-# (apparently to reduce statistical correlation and biased gradients)
 ##############################################################################
 def forward_all(model,
                 flow_matcher,
@@ -88,7 +90,7 @@ def forward_all(model,
 
     vt = model(t, xt)  # calls forward() in EBViTModelWrapper
     flow_mse = (vt - ut).square()
-    w_flow = flow_weight(t, cutoff=time_cutoff) # Linear ramping down of flow weight in line with linear ramping up of epsilon
+    w_flow = flow_weight(t, cutoff=time_cutoff)
     flow_loss = torch.mean(w_flow * flow_mse.mean(dim=[1, 2, 3]))
 
     # ----------------------------------------------------------
@@ -109,7 +111,6 @@ def forward_all(model,
 
             x_neg_init[:half_b] = x_real_cd[:half_b]
             x_neg_init[half_b:] = torch.randn_like(x_neg_init[half_b:])
-            # at_data_mask is used to determine the epsilon noise schedule
             at_data_mask = torch.zeros(B, dtype=torch.bool, device=device)
             at_data_mask[:half_b] = True
         else:
@@ -117,7 +118,6 @@ def forward_all(model,
             x_neg_init = torch.randn_like(x_real_cd)
             at_data_mask = torch.zeros(x_real_cd.size(0), dtype=torch.bool, device=device)
 
-        # i.e. all use the same temperature schedule as not at data if this flag is active
         if FLAGS.same_temperature_scheduler:
             at_data_mask = torch.zeros_like(at_data_mask)
 
@@ -190,31 +190,31 @@ def train_loop(rank, world_size, argv):
         logging.info("=============================================\n")
 
     # -----------------------------------------------------------------------
-    # 2) CIFAR10 dataset with distributed sampler
+    # 2) MNIST dataset with distributed sampler
+    # NOTE: RandomHorizontalFlip removed — flipping digits is not a valid
+    # augmentation for MNIST (e.g. flipped '7' is not a valid digit).
     # -----------------------------------------------------------------------
-    data_root = os.environ.get("CIFAR10_PATH", "./data")
+    data_root = os.environ.get("MNIST_PATH", "./data")
     if rank == 0:
-        dataset = datasets.CIFAR10(
+        dataset = datasets.MNIST(
             root=data_root,
             train=True,
             download=True,
             transform=transforms.Compose([
-                transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))
+                transforms.Normalize((0.5,),(0.5,))
             ])
         )
         dist.barrier()  # allow other ranks to see the downloaded data
     else:
         dist.barrier()  # wait for rank 0 to download
-        dataset = datasets.CIFAR10(
+        dataset = datasets.MNIST(
             root=data_root,
             train=True,
             download=False,
             transform=transforms.Compose([
-                transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
-                transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))
+                transforms.Normalize((0.5,),(0.5,))
             ])
         )
     train_sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True)
@@ -234,7 +234,7 @@ def train_loop(rank, world_size, argv):
     ch_mult = config.parse_channel_mult(FLAGS)
 
     net_model = EBViTModelWrapper(
-        dim=(3, 32, 32),
+        dim=(1, 28, 28),
         num_channels=FLAGS.num_channels,
         num_res_blocks=FLAGS.num_res_blocks,
         channel_mult=ch_mult,
@@ -245,7 +245,7 @@ def train_loop(rank, world_size, argv):
         output_scale=FLAGS.output_scale,
         energy_clamp=FLAGS.energy_clamp,
         # ViT-specific params:
-        patch_size=4,
+        patch_size=7,  # NOTE: not specified in paper for MNIST. Using 7 so 28/7=4. Unsure.
         embed_dim=FLAGS.embed_dim,
         transformer_nheads=FLAGS.transformer_nheads,
         transformer_nlayers=FLAGS.transformer_nlayers,
@@ -376,10 +376,18 @@ def train_loop(rank, world_size, argv):
             # Save checkpoint occasionally (rank=0)
             # -------------------------------------------------
             if rank == 0 and FLAGS.save_step > 0 and step % FLAGS.save_step == 0 and step > 0:
-                # generate a few samples for logging
-                real_batch = next(datalooper).to(device)[:8]
-                generate_samples(net_model.module, savedir, step, net_="normal", real_data=real_batch)
-                generate_samples(ema_model, savedir, step, net_="ema", real_data=real_batch)
+                # Generate SDE samples inline (can't use generate_samples from
+                # utils — it hardcodes CIFAR-10 dims (3,32,32))
+                for tag, mdl in [("normal", net_model.module), ("ema", ema_model)]:
+                    mdl.eval()
+                    with torch.no_grad():
+                        init = torch.randn(64, 1, 28, 28, device=device)
+                        traj = sde_euler_maruyama(mdl, init, t0=0.0, t1=1.0, dt=0.01)
+                        final = traj[-1].clamp(-1, 1)
+                        final_01 = final / 2.0 + 0.5
+                    from torchvision.utils import save_image as _save_img
+                    _save_img(final_01, os.path.join(savedir, f"{tag}_generated_FM_images_step_{step}.png"), nrow=8)
+                    mdl.train()
 
                 # (a) create real data batch
                 real_batch = next(datalooper).to(device)[:64]  # up to 64 for an 8x8 grid
@@ -397,7 +405,7 @@ def train_loop(rank, world_size, argv):
                 save_pos_neg_grids(real_batch, x_neg, savedir, step)
 
                 ckpt_latest = os.path.join(savedir,
-                                          f"{FLAGS.model}_cifar10_weights_step_latest.pt")
+                                          f"{FLAGS.model}_mnist_weights_step_latest.pt")
                 ckpt_numbered = os.path.join(savedir, f"checkpoint_{step}.pt")
 
                 checkpoint_data = {
