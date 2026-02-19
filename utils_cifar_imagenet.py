@@ -150,7 +150,7 @@ def gibbs_sampling_time_sweep(
             noise = torch.randn_like(samples)
             samples += noise * noise_std.view(-1, 1, 1, 1)
 
-    # Final clamp to valid image range
+    # Final clamp to valid image range (not for each step though see)
     samples = samples.clamp(-1.0, 1.0)
     return samples.detach()
 
@@ -475,6 +475,7 @@ def flow_weight(t, cutoff=0.8):
     return w
 
 
+# I think this fucntion is not used 
 def cd_weight(t, cutoff=0.8):
     """
     Contrastive Divergence weighting function:
