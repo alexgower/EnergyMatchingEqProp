@@ -13,6 +13,37 @@ def define_flags():
     # Model + output
     flags.DEFINE_string("model", "EBMTime", "Flow matching model type")
     flags.DEFINE_string("output_dir", "./results_mnist_from_cifar10/", "Directory for results")
+    flags.DEFINE_string("model_type", "unet_vit",
+                        "Model architecture: 'unet_vit' (paper), 'cnn'/'cnn_v2' (feedforward CNN), 'ep_cnn' (EP recurrent CNN), or 'ep_mlp' (EP recurrent MLP)")
+
+    # EP recurrent model parameters
+    flags.DEFINE_integer("ep_T", 50, "Number of hidden state convergence steps for EP model")
+    flags.DEFINE_float("ep_epsilon", 0.5, "Step size for EP hidden state gradient descent")
+    flags.DEFINE_float("ep_init_gain", 1.0, "Weight initialization std gain multiplier for EP linear/conv projection layers")
+    flags.DEFINE_string("ep_act", "identity", "Activation in EP couplings: 'identity' (bilinear) or 'tanh' (nonlinear, Hopfield-style)")
+    flags.DEFINE_string("ep_act_s4", "", "Activation for s4 (deepest flat) layer only. Empty = use ep_act. Options: tanh, silu, softsign, identity.")
+    flags.DEFINE_boolean("ep_skip_s4", False, "Add direct x→s4 skip coupling (Linear 784→256, ~200K params). Global velocity pathway.")
+    flags.DEFINE_string("dataset", "mnist", "Dataset to train on: 'mnist', 'mnist_8x8' (MNIST downsampled to 8x8, 60K samples), or 'sklearn_digits' (UCI 8x8, 1797 samples).")
+    flags.DEFINE_list("ep_archi", ["784", "512", "512"], "Architecture for EP MLP model: [visible, hidden1, hidden2, ...]")
+    flags.DEFINE_bool("ep_spectral_norm", True, "Apply spectral normalization to EP coupling weight layers (w1-w4)")
+    flags.DEFINE_float("ep_spectral_scale", 1.0, "Scale factor for spectral-normed weights (set <1 to guarantee rho<1, e.g. 0.9)")
+    flags.DEFINE_string("ep_learning_mode", "bptt", "Gradient mode: 'bptt' (full unrolling), 'deq' (detached forward + K Neumann backward), 'ep' (x-clamped EP, O(1) memory), or 'spring' (spring-clamped EP: x dynamic, velocity from displacement, no autograd/create_graph).")
+    flags.DEFINE_integer("ep_K", 10, "Number of graph-enabled steps for DEQ backward (= Neumann iterations = EP nudged steps)")
+    flags.DEFINE_integer("ep_T1", 100, "EP free phase steps (fully detached, O(1) memory). Only used when ep_learning_mode='ep'.")
+    flags.DEFINE_integer("ep_T2", 100, "EP nudged phase steps (fully detached, O(1) memory). Only used when ep_learning_mode='ep'.")
+    flags.DEFINE_float("ep_beta", 0.01, "EP nudge strength beta (small = linear response regime). Only used when ep_learning_mode='ep'.")
+    flags.DEFINE_float("beta_anneal_halflife", 0, "Steps between beta halvings (exponential decay). 0 = no annealing.")
+    flags.DEFINE_bool("ep_explicit_grad", False, "Include explicit gradient term ∂L/∂θ in EP estimator. Default False = implicit-only (stabler, drops O(1) term vs O(1/(1-ρ)) implicit).")
+    flags.DEFINE_bool("x_intra_weights", False, "Add learnable quadratic weights x^T W x to energy (affects velocity but not convergence)")
+    flags.DEFINE_float("lambda_spring", 10.0, "Spring constant for spring-clamped EP (ep_learning_mode='spring'). Controls stiffness: larger = x stays closer to x_t.")
+    flags.DEFINE_float("skip_nudge_disp_threshold", 0.0, "Skip optimizer step when EP nudge_disp exceeds this value (0=disabled). Prevents outlier batches from corrupting Adam moments.")
+    flags.DEFINE_float("skip_grad_norm_multiplier", 0.0, "Skip optimizer step when pre-clip grad norm exceeds this multiple of grad_clip (0=disabled). E.g. 100 skips when grad_norm > 100*grad_clip.")
+    flags.DEFINE_float("adaptive_ss_rho_target", 0.0, "Adaptive spectral scale: target rho (0=disabled). Controller grows ss when rho < target, shrinks when rho > target.")
+    flags.DEFINE_float("adaptive_ss_max", 0.99, "Upper clamp for adaptive spectral scale. Raise above 1.0 for silu (which needs ss>1 to push rho past ~0.95).")
+    flags.DEFINE_bool("ep_thirdphase", True, "Use three-phase EP (positive and negative nudge) for O(β²) gradient estimates instead of O(β). Costs +50% per step (extra T2 convergence).")
+    flags.DEFINE_list("cnn_channels", ["32", "64", "64", "256"],
+        "Channel dims for EP CNN layers: [s1_channels, s2_channels, s3_channels, s4_dim]. "
+        "Spatial dims are fixed: s1=14x14, s2=7x7, s3=7x7, s4=flat vector.")
 
     # Flow/EBM Model parameters (MNIST: downscaled to ~2M params)
     flags.DEFINE_integer("num_channels", 32, "Base channels (CIFAR-10: 128)")
@@ -65,6 +96,7 @@ def define_flags():
     flags.DEFINE_integer("n_gibbs", 0, "Number of Gibbs steps (Phase 2: 75)")
     flags.DEFINE_float("lambda_cd", 0., "Coefficient for contrastive divergence loss (Phase 2: 1e-3)")
     flags.DEFINE_float("time_cutoff", 1.0, "Flow loss decays to zero beyond t>=time_cutoff")
+    flags.DEFINE_string("gen_mode", "spring", "Generation mode: 'spring' (velocity from spring displacement, matches training) or 'energy_gd' (velocity from energy gradient with x fixed and h converged to equilibrium, matches neuromorphic inference)")
     flags.DEFINE_float("cd_neg_clamp", 0.05,
                        "Clamp negative total CD below -cd_neg_clamp. 0=disable clamp. (CIFAR-10: 0.02)")
     flags.DEFINE_float(

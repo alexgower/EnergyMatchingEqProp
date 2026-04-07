@@ -1,0 +1,4 @@
+results_mnist_from_cifar10/
+logs/
+gen_*
+data/

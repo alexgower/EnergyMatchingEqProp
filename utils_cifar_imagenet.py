@@ -160,21 +160,24 @@ def create_timestamped_dir(base_output_dir, model_name):
     Creates a directory named like:
        base_output_dir / [model_name]_YYYYMMDD_HH
     If that directory exists, it appends _verX.
-    Returns the final directory path.
+    Uses atomic try/except to avoid race conditions with concurrent processes.
     """
     ts = time.strftime('%Y%m%d_%H')  # e.g. 20250214_15
     base_name = f"{model_name}_{ts}"
     path_candidate = os.path.join(base_output_dir, base_name)
 
-    ver_idx = 1
-    while os.path.exists(path_candidate):
-        path_candidate = os.path.join(
-            base_output_dir, f"{base_name}_ver{ver_idx}"
-        )
-        ver_idx += 1
-
-    os.makedirs(path_candidate)
-    return path_candidate
+    # Try creating the base path first, then ver1, ver2, etc.
+    # os.makedirs with exist_ok=False is atomic — no race condition.
+    ver_idx = 0
+    while True:
+        try:
+            os.makedirs(path_candidate, exist_ok=False)
+            return path_candidate
+        except FileExistsError:
+            ver_idx += 1
+            path_candidate = os.path.join(
+                base_output_dir, f"{base_name}_ver{ver_idx}"
+            )
 
 
 ##############################################################################
@@ -538,5 +541,5 @@ def ema(source, target, decay):
 
 def infiniteloop(dataloader):
     while True:
-        for x, y in iter(dataloader):
-            yield x
+        for batch in iter(dataloader):
+            yield batch[0] if isinstance(batch, (list, tuple)) else batch
