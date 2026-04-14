@@ -472,10 +472,6 @@ class EBEPCETModelWrapper(nn.Module):
     # ==================================================================
 
     def compute_jacobian_spectral_radius(self, x, hidden_star, n_iters=20):
-        """
-        Power iteration for spectral radius of the z-dynamics Jacobian.
-        The iteration map is: z_new = z - ε·∇_z E(x, z).
-        """
         z_star = hidden_star[0]
         eps = self.epsilon_ep
 
@@ -488,6 +484,8 @@ class EBEPCETModelWrapper(nn.Module):
             E = self._energy([x.detach(), z]).sum()
             gz = torch.autograd.grad(E, z, create_graph=True)[0]
             z_new = z - eps * gz
+            if self.normalize_tokens:
+                z_new = self._project_tokens(z_new)
 
             Jv = torch.autograd.grad(z_new, z, grad_outputs=v)[0]
             Jv_norm = Jv.norm().item()
