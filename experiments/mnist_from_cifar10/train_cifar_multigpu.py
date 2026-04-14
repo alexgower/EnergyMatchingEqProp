@@ -832,7 +832,8 @@ def train_loop(rank, world_size, argv):
             if rank == 0 and is_save_step:
                 # Generate SDE samples inline (can't use generate_samples from
                 # utils — it hardcodes CIFAR-10 dims (3,32,32))
-                for tag, mdl in [("normal", raw_model), ("ema", ema_model)]:
+                # for tag, mdl in [("normal", raw_model), ("ema", ema_model)]:
+                for tag, mdl in [("normal", raw_model)]:
                     mdl.eval()
                     with torch.no_grad():
                         init = torch.randn(64, *img_shape, device=device)
