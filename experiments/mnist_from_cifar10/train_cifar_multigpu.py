@@ -727,15 +727,17 @@ def train_loop(rank, world_size, argv):
                 grad_diag = []
                 for name, p in raw_model.named_parameters():
                     if p.grad is not None:
-                        g = p.grad.norm().item()
-                        w = p.data.norm().item()
-                        ratio = g / w if w > 1e-12 else float('inf')
-                        grad_diag.append((name, g, w, ratio))
-                grad_diag.sort(key=lambda x: x[1], reverse=True)
-                logging.info(f"[GradDiag step={step}] per-module grad_norm / weight_norm / ratio:")
-                for name, g, w, r in grad_diag:
-                    logging.info(f"  {name:40s}  grad={g:.6e}  weight={w:.6e}  g/w={r:.6e}")
-
+                        n = p.numel()
+                        g_norm = p.grad.norm().item()
+                        w_norm = p.data.norm().item()
+                        g_rms = g_norm / (n ** 0.5)  # per-element RMS gradient
+                        w_rms = w_norm / (n ** 0.5)  # per-element RMS weight
+                        ratio = g_rms / w_rms if w_rms > 1e-12 else float('inf')
+                        grad_diag.append((name, n, g_rms, w_rms, ratio))
+                grad_diag.sort(key=lambda x: x[2], reverse=True)
+                logging.info(f"[GradDiag step={step}] per-element RMS grad / weight / ratio:")
+                for name, n, g, w, r in grad_diag:
+                    logging.info(f"  {name:40s}  n={n:>7d}  g_rms={g:.6e}  w_rms={w:.6e}  g/w={r:.6e}")
 
 
             # ------------------------------------------------------------------
