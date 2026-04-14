@@ -526,7 +526,98 @@ class EBEPCETModelWrapper(nn.Module):
         plt.close(fig)
 
     def save_layer_activations_plot(self, save_dir, step):
-        pass
+        """Save per-neuron convergence traces for x and z."""
+        trace = self._last_convergence_trace
+        if trace is None:
+            return
+
+        timesteps = list(range(len(trace)))
+
+        # Two panels: x neurons, z neurons
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+        # x neurons
+        if "x_neurons" in trace[0] and len(trace[0]["x_neurons"]) > 0:
+            n_neurons = len(trace[0]["x_neurons"])
+            for n in range(n_neurons):
+                values = [t["x_neurons"][n] for t in trace]
+                axes[0].plot(timesteps, values, linewidth=0.5, alpha=0.6)
+            axes[0].set_xlabel("Convergence step")
+            axes[0].set_ylabel("x neuron value")
+            axes[0].set_title("x (visible) neuron traces")
+            axes[0].grid(True, alpha=0.3)
+
+        # z neurons
+        if "z_neurons" in trace[0] and len(trace[0]["z_neurons"]) > 0:
+            n_neurons = len(trace[0]["z_neurons"])
+            for n in range(n_neurons):
+                values = [t["z_neurons"][n] for t in trace]
+                axes[1].plot(timesteps, values, linewidth=0.5, alpha=0.6)
+            axes[1].set_xlabel("Convergence step")
+            axes[1].set_ylabel("z neuron value")
+            axes[1].set_title("z (token) neuron traces")
+            axes[1].grid(True, alpha=0.3)
+
+        fig.suptitle(f"CET neuron traces (step {step})")
+        fig.tight_layout()
+        path = os.path.join(save_dir, f"neuron_traces_step_{step}.png")
+        fig.savefig(path, dpi=100, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[neuron_traces] Saved {path}")
 
     def save_nudge_traces_plot(self, save_dir, step):
-        pass
+        """
+        Plot per-neuron displacement from h* during nudge phase(s).
+        Two panels: x displacement, z displacement.
+        Solid = positive nudge, dashed = negative nudge.
+        """
+        free_final = getattr(self, '_last_spring_free_final', None)
+        trace_pos = getattr(self, '_last_nudge_pos_trace', None)
+        if free_final is None or trace_pos is None:
+            return
+        trace_neg = getattr(self, '_last_nudge_neg_trace', None)
+
+        neuron_keys = [k for k in trace_pos[0].keys()
+                    if k.endswith('_neurons')]
+        if not neuron_keys:
+            return
+
+        n_panels = len(neuron_keys)
+        fig, axes = plt.subplots(1, n_panels, figsize=(6 * n_panels, 4), squeeze=False)
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+
+        for idx, key in enumerate(neuron_keys):
+            ax = axes[0, idx]
+            label = key.replace('_neurons', '')
+            ref = free_final.get(key, [0.0] * 8)
+            n_neurons = len(ref)
+
+            timesteps_pos = list(range(len(trace_pos)))
+            for n in range(n_neurons):
+                col = colors[n % len(colors)]
+                disp_pos = [entry[key][n] - ref[n] for entry in trace_pos]
+                ax.plot(timesteps_pos, disp_pos, color=col, linewidth=1.0,
+                        alpha=0.85, linestyle='-',
+                        label=f'n{n}' if idx == 0 else None)
+
+            if trace_neg is not None:
+                timesteps_neg = list(range(len(trace_neg)))
+                for n in range(n_neurons):
+                    col = colors[n % len(colors)]
+                    disp_neg = [entry[key][n] - ref[n] for entry in trace_neg]
+                    ax.plot(timesteps_neg, disp_neg, color=col, linewidth=1.0,
+                            alpha=0.55, linestyle='--')
+
+            ax.axhline(0, color='black', linewidth=0.6, linestyle=':')
+            ax.set_xlabel("Nudge step")
+            ax.set_ylabel(f"Δ{label}")
+            ax.set_title(f"{label} nudge displacement")
+            ax.grid(True, alpha=0.3)
+
+        axes[0, 0].legend(fontsize=6, ncol=2, title="neuron (solid=+β, dash=−β)")
+        fig.suptitle(f"CET nudge displacement from equilibrium (step {step})")
+        fig.tight_layout()
+        path = os.path.join(save_dir, f"nudge_displacement_step_{step}.png")
+        fig.savefig(path, dpi=100, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[nudge_displacement] Saved {path}")
