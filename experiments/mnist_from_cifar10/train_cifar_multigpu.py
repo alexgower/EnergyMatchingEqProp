@@ -700,6 +700,7 @@ def train_loop(rank, world_size, argv):
 
             if step == start_step:
                 print(f"[DEBUG-BPTT] Step {step} | backward() complete! Updaing weights...", flush=True)
+            pre_clip_norm = torch.nn.utils.clip_grad_norm_(net_model.parameters(), FLAGS.grad_clip)
 
 
             # Per-module gradient diagnostics (every 100 steps)
@@ -717,7 +718,6 @@ def train_loop(rank, world_size, argv):
                     logging.info(f"  {name:40s}  grad={g:.6e}  weight={w:.6e}  g/w={r:.6e}")
 
 
-            pre_clip_norm = torch.nn.utils.clip_grad_norm_(net_model.parameters(), FLAGS.grad_clip)
 
             # ------------------------------------------------------------------
             # Adaptive Spectral Scale Controller
