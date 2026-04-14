@@ -700,6 +700,23 @@ def train_loop(rank, world_size, argv):
 
             if step == start_step:
                 print(f"[DEBUG-BPTT] Step {step} | backward() complete! Updaing weights...", flush=True)
+
+
+            # Per-module gradient diagnostics (every 100 steps)
+            if rank == 0 and step % 100 == 0 and is_ep_spring_mode:
+                grad_diag = []
+                for name, p in raw_model.named_parameters():
+                    if p.grad is not None:
+                        g = p.grad.norm().item()
+                        w = p.data.norm().item()
+                        ratio = g / w if w > 1e-12 else float('inf')
+                        grad_diag.append((name, g, w, ratio))
+                grad_diag.sort(key=lambda x: x[1], reverse=True)
+                logging.info(f"[GradDiag step={step}] per-module grad_norm / weight_norm / ratio:")
+                for name, g, w, r in grad_diag:
+                    logging.info(f"  {name:40s}  grad={g:.6e}  weight={w:.6e}  g/w={r:.6e}")
+
+
             pre_clip_norm = torch.nn.utils.clip_grad_norm_(net_model.parameters(), FLAGS.grad_clip)
 
             # ------------------------------------------------------------------
