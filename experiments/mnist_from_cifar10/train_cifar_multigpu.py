@@ -525,11 +525,19 @@ def train_loop(rank, world_size, argv):
     # -----------------------------------------------------------------------
     # 4) Optimizer, scheduler
     # -----------------------------------------------------------------------
-    optim = torch.optim.Adam(
-        net_model.parameters(),
-        lr=FLAGS.lr,
-        betas=(0.9, 0.95)
-    )
+    if FLAGS.model_type == 'ep_cet' and FLAGS.cet_z_lr_mult != 1.0:
+        x_params = [raw_model.encoder_weight, raw_model.encoder_bias]
+        z_params = [raw_model.memory_weight, raw_model.W_K, raw_model.W_Q, raw_model.pos_bias]
+        optim = torch.optim.Adam([
+            {'params': x_params, 'lr': FLAGS.lr},
+            {'params': z_params, 'lr': FLAGS.lr * FLAGS.cet_z_lr_mult},
+        ], betas=(0.9, 0.95))
+    else:
+        optim = torch.optim.Adam(
+            net_model.parameters(),
+            lr=FLAGS.lr,
+            betas=(0.9, 0.95)
+        )
     sched = torch.optim.lr_scheduler.LambdaLR(optim, lr_lambda=warmup_lr)
 
     # -----------------------------------------------------------------------
@@ -571,9 +579,14 @@ def train_loop(rank, world_size, argv):
         # ---- Override saved hyperparameters with CLI flags ----
         # The optimizer state dict restores lr from the checkpoint, silently
         # ignoring the --lr flag. Force the CLI value into all param groups.
-        for pg in optim.param_groups:
-            pg['lr'] = FLAGS.lr
-            pg['initial_lr'] = FLAGS.lr  # LambdaLR uses setdefault('initial_lr'), so must set explicitly
+        for i, pg in enumerate(optim.param_groups):
+            if FLAGS.model_type == 'ep_cet' and FLAGS.cet_z_lr_mult != 1.0:
+                mult = FLAGS.cet_z_lr_mult if i == 1 else 1.0
+                pg['lr'] = FLAGS.lr * mult
+                pg['initial_lr'] = FLAGS.lr * mult  # LambdaLR uses setdefault('initial_lr'), so must set explicitly
+            else:
+                pg['lr'] = FLAGS.lr
+                pg['initial_lr'] = FLAGS.lr  # LambdaLR uses setdefault('initial_lr'), so must set explicitly
         # Reset the scheduler so it applies warmup based on the new lr.
         # Without this, the scheduler's internal state still references the
         # old lr and warmup behaves incorrectly.

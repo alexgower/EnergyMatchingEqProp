@@ -54,6 +54,7 @@ def define_flags():
     flags.DEFINE_integer('cet_stride', 0, 'CET patch stride (0 = same as patch_size)')
     flags.DEFINE_float('cet_inv_temp', 0.25, 'CET attention inverse temperature')
     flags.DEFINE_boolean('cet_normalize_tokens', False, 'CET token normalization')
+    flags.DEFINE_float("cet_z_lr_mult", 1.0, "LR multiplier for z-only CET params (memory, attention, pos_bias)")
 
     # Flow/EBM Model parameters (MNIST: downscaled to ~2M params)
     flags.DEFINE_integer("num_channels", 32, "Base channels (CIFAR-10: 128)")
