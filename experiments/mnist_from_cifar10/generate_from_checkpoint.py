@@ -54,7 +54,7 @@ flags.DEFINE_bool("use_ema", False, "Also generate with EMA model weights")
 flags.DEFINE_bool("use_normal", True, "Use non-EMA model weights (default)")
 
 # Import models
-from network_ep import EBEPModelWrapper
+from network_ep_cnn import EBEPModelWrapper
 from network_ep_mlp import EBEPMLPModelWrapper
 from network_cnn import EBCNNModelWrapper
 from network_transformer_vit import EBViTModelWrapper

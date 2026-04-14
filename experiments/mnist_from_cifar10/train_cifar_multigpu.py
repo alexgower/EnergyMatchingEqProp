@@ -43,8 +43,9 @@ from utils_cifar_imagenet import (
 # 3) Import EBM models
 from network_transformer_vit import EBViTModelWrapper
 from network_cnn import EBCNNModelWrapper
-from network_ep import EBEPModelWrapper
+from network_ep_cnn import EBEPModelWrapper
 from network_ep_mlp import EBEPMLPModelWrapper
+from network_ep_cet import EBEPCETModelWrapper
 
 # TorchCFM flow classes
 from torchcfm.conditional_flow_matching import ExactOptimalTransportConditionalFlowMatcher
@@ -169,119 +170,6 @@ def forward_all(model,
     return total_loss, flow_loss, cd_loss, pos_energy, neg_energy, vt_mag, ut_mag
 
 
-##############################################################################
-# EP training forward pass
-# Used when FLAGS.ep_learning_mode == 'ep'. Replaces the standard
-# forward_all + total_loss.backward() pair in the training loop.
-##############################################################################
-def forward_all_ep(raw_model,
-                   flow_matcher,
-                   x_real_flow,
-                   beta,
-                   T1,
-                   T2,
-                   time_cutoff,
-                   explicit_grad=False,
-                   thirdphase=False):
-    """
-    Equilibrium Propagation forward pass for flow matching.
-
-    Steps:
-      1. Sample OT flow pair (xt, ut) from x_real_flow.
-      2. Free phase: _converge_ep_free -> h*  (detached, O(1) memory)
-      3. Velocity at h* for logging only (single autograd call, no BPTT graph).
-      4. Nudged phase: _converge_ep_nudged -> h_beta  (detached, O(1) memory)
-         If thirdphase: also run negative nudge -> h_minus from same h*.
-      5. EP gradient step: ep_gradient_step accumulates into param.grad.
-
-    Returns (flow_loss_log, vt_mag, ut_mag, nudge_disp, free_disp) for logging.
-    nudge_disp = ||h_beta - h_star||: scalar diagnostic for nudge effectiveness.
-      < 1e-6 => nudge not working (beta too small or dynamics didn't move)
-      > 10   => nudge too strong (left linear regime, EP approximation breaks)
-    free_disp = ||h*||: distance from initialization (h=0) to equilibrium.
-      nudge_disp/free_disp is a dimensionless EP perturbation measure.
-    NOTE: ep_gradient_step() already calls .backward(), so the caller must
-    NOT call total_loss.backward().
-    TODO: Maybe include CD loss stuff in here too eventually!
-    """
-    device = x_real_flow.device
-
-    # 1. Flow pair
-    x0 = torch.randn_like(x_real_flow)
-    t, xt, ut = flow_matcher.sample_location_and_conditional_flow(x0, x_real_flow)
-
-    # --- Resample high-t entries if time_cutoff < 1.0 ---
-    if time_cutoff < 1.0:
-        mask = t > time_cutoff  # (B,) boolean
-        n_resample = mask.sum().item()
-        if n_resample > 0:
-            # Resample t uniformly in [0, time_cutoff]
-            t[mask] = torch.rand(n_resample, device=device) * time_cutoff
-            # Recompute interpolation: xt = (1-t)*x0 + t*x1
-            # x0 is noise, x_real_flow is x1
-            t_view = t[mask].view(-1, 1, 1, 1)  # (n_resample, 1, 1, 1)
-            xt[mask] = (1 - t_view) * x0[mask] + t_view * x_real_flow[mask]
-            # ut = x1 - x0 (OT linear path: independent of t, no recomputation needed)
-
-    # Reshape BEFORE any EP calls — MLP methods expect flat (B, 784),
-    # CNN methods expect (B, 1, 28, 28). velocity_at_h handles flattening
-    # internally but we pass x_input for consistency throughout.
-    if hasattr(raw_model, 'archi'):  # MLP
-        x_input = xt.view(xt.size(0), -1)   # (B, 784)
-        ut_input = ut.view(ut.size(0), -1)  # (B, 784)
-    else:  # CNN
-        x_input = xt
-        ut_input = ut
-
-    # 2. Free phase (O(1) memory)
-    h_star = raw_model._converge_ep_free(x_input, T1)
-
-    # Free displacement: ||h*|| (h initialized at 0, so displacement = norm)
-    free_disp = sum(h.pow(2).sum() for h in h_star).sqrt().item()
-
-    # 3. Velocity at h* for logging — reuses h_star, no re-convergence
-    v_log = raw_model.velocity_at_h(x_input, h_star)  # (B, 1, 28, 28), detached
-
-    # flow_loss is for logging only — EP gradient drives optimisation
-    w_flow = flow_weight(t, cutoff=time_cutoff)
-    flow_loss_log = torch.mean(w_flow * (v_log - ut_input).pow(2).flatten(1).mean(dim=1))
-    vt_mag = v_log.view(v_log.size(0), -1).norm(dim=1).mean()
-    ut_mag = ut.view(ut.size(0), -1).norm(dim=1).mean()
-
-    # Time-binned flow loss diagnostic (unweighted MSE per bin)
-    per_sample_mse = (v_log - ut_input).pow(2).flatten(1).mean(dim=1)  # (B,)
-    bin_edges = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
-    flow_bins = []
-    for i in range(len(bin_edges) - 1):
-        bin_mask = (t >= bin_edges[i]) & (t < bin_edges[i + 1])
-        if bin_mask.sum() > 0:
-            flow_bins.append(per_sample_mse[bin_mask].mean().item())
-        else:
-            flow_bins.append(float('nan'))
-
-    # 4. Positive nudged phase (O(1) memory): β = +beta
-    h_plus = raw_model._converge_ep_nudged(x_input, h_star, beta, ut_input, T2)
-
-    # Nudge displacement: scalar diagnostic ||h_plus - h_star||
-    nudge_disp = sum((hp - hs).pow(2).sum() for hp, hs in zip(h_plus, h_star)).sqrt().item()
-
-    if thirdphase:
-        # 4b. Negative nudged phase: β = -beta, starting from SAME h_star
-        h_minus = raw_model._converge_ep_nudged(x_input, h_star, -beta, ut_input, T2)
-
-        # 5. Three-phase EP gradient: (E_plus - E_minus) / (2β)
-        # ep_gradient_step computes (E_second - E_first) / beta_arg,
-        # so pass (h_minus, h_plus, 2*beta) to get (E_plus - E_minus) / (2β).
-        raw_model.ep_gradient_step(x_input, h_minus, h_plus, 2 * beta, ut_input,
-                                   explicit_grad=explicit_grad)
-    else:
-        # 5. Original two-phase EP gradient: (E_beta - E_star) / β
-        raw_model.ep_gradient_step(x_input, h_star, h_plus, beta, ut_input,
-                                   explicit_grad=explicit_grad)
-
-    return flow_loss_log, vt_mag, ut_mag, nudge_disp, free_disp, flow_bins
-
-
 def forward_all_ep_spring(raw_model, flow_matcher, x_real_flow, beta, T1, T2,
                           lambda_spring, time_cutoff, thirdphase=False,
                           record_trace=False):
@@ -340,6 +228,11 @@ def forward_all_ep_spring(raw_model, flow_matcher, x_real_flow, beta, T1, T2,
             free_final = {"x_neurons": raw_model._sample_neurons(x_star[0])}
             for idx, h in enumerate(h_star):
                 free_final[f"h{idx+1}_neurons"] = raw_model._sample_neurons(h[0])
+        elif hasattr(raw_model, 'n_patches'):  # CET: h_star is [z] where z is (B, N_P, D_T)
+            free_final = {
+                "x_neurons": raw_model._sample_neurons(x_star[0]),
+                "z_neurons": raw_model._sample_neurons(h_star[0][0]),
+            }
         else:  # CNN: h_star is [s1, s2, s3, s4] with shape (B, C, H, W)
             free_final = {
                 "x_neurons":  raw_model._sample_neurons(x_star[0]),
@@ -547,8 +440,6 @@ def train_loop(rank, world_size, argv):
             act_s4=FLAGS.ep_act_s4 if FLAGS.ep_act_s4 else FLAGS.ep_act,
             skip_s4=FLAGS.ep_skip_s4,
             spectral_norm_enabled=FLAGS.ep_spectral_norm,
-            learning_mode=FLAGS.ep_learning_mode,
-            neumann_K=FLAGS.ep_K,
             spectral_scale=FLAGS.ep_spectral_scale,
             x_intra_weights=FLAGS.x_intra_weights,
             lambda_spring=FLAGS.lambda_spring,
@@ -565,11 +456,30 @@ def train_loop(rank, world_size, argv):
             activation=FLAGS.ep_act,
             init_gain=FLAGS.ep_init_gain,
             spectral_norm_enabled=FLAGS.ep_spectral_norm,
-            learning_mode=FLAGS.ep_learning_mode,
-            neumann_K=FLAGS.ep_K,
             spectral_scale=FLAGS.ep_spectral_scale,
             x_intra_weights=FLAGS.x_intra_weights,
             lambda_spring=FLAGS.lambda_spring,
+        ).to(device)
+    elif FLAGS.model_type == "ep_cet":
+        net_model = EBEPCETModelWrapper(
+            img_channels=1 if FLAGS.dataset != "cifar10" else 3,
+            img_size=8 if FLAGS.dataset == "sklearn_digits" else 28,
+            patch_size=int(FLAGS.cet_patch_size),
+            stride=FLAGS.cet_stride if FLAGS.cet_stride > 0 else None,
+            token_dim=int(FLAGS.cet_token_dim),
+            n_heads=int(FLAGS.cet_n_heads),
+            head_dim=int(FLAGS.cet_head_dim),
+            n_memories=int(FLAGS.cet_n_memories),
+            inv_temp=float(FLAGS.cet_inv_temp),
+            T=FLAGS.ep_T,
+            epsilon_ep=FLAGS.ep_epsilon,
+            output_scale=FLAGS.output_scale,
+            energy_clamp=FLAGS.energy_clamp,
+            init_gain=FLAGS.ep_init_gain,
+            spectral_norm_enabled=FLAGS.ep_spectral_norm,
+            spectral_scale=FLAGS.ep_spectral_scale,
+            lambda_spring=FLAGS.lambda_spring,
+            normalize_tokens=FLAGS.cet_normalize_tokens,
         ).to(device)
     else:
         # Default: UNet + ViT head (paper architecture)
@@ -706,8 +616,8 @@ def train_loop(rank, world_size, argv):
 
             # ------------------------------------------------------------------
             # Forward + backward pass
-            # EP mode calls forward_all_ep (ep_gradient_step does its own .backward())
-            # BPTT / DEQ mode calls forward_all + total_loss.backward() as before.
+            # Spring EP: forward_all_ep_spring (ep_spring_gradient_step does its own .backward())
+            # Fallback: forward_all + total_loss.backward() (BPTT/DEQ/ViT/CNN)
             # ------------------------------------------------------------------
             is_save_step = False
             if step > 0:
@@ -716,13 +626,11 @@ def train_loop(rank, world_size, argv):
                 else:
                     is_save_step = (FLAGS.save_step > 0 and step % FLAGS.save_step == 0)
 
-            is_ep_mode = (FLAGS.ep_learning_mode == 'ep' and
-                          FLAGS.model_type in ('ep_cnn', 'ep_mlp'))
             is_ep_spring_mode = (FLAGS.ep_learning_mode == 'spring' and
-                                 FLAGS.model_type in ('ep_cnn', 'ep_mlp'))
+                                 FLAGS.model_type in ('ep_cnn', 'ep_mlp', 'ep_cet'))
 
             if step == start_step:
-                print(f"[DEBUG] Step {step} | mode={'EP-spring' if is_ep_spring_mode else 'EP' if is_ep_mode else 'BPTT/DEQ'} | "
+                print(f"[DEBUG] Step {step} | mode={'EP-spring' if is_ep_spring_mode else 'BPTT/DEQ'} | "
                       f"Calling forward pass...", flush=True)
 
             # Compute effective beta (with optional exponential annealing)
@@ -746,28 +654,11 @@ def train_loop(rank, world_size, argv):
                 cd_loss = torch.tensor(0.0, device=device)
                 pos_energy = torch.zeros(1, device=device)
                 neg_energy = torch.zeros(1, device=device)
-            elif is_ep_mode:
-                # EP path: no total_loss.backward() needed — ep_gradient_step handles it
-                flow_loss, vt_mag, ut_mag, nudge_disp, free_disp, flow_bins = forward_all_ep(
-                    raw_model=raw_model,
-                    flow_matcher=flow_matcher,
-                    x_real_flow=x_real_flow,
-                    beta=eff_beta,
-                    T1=FLAGS.ep_T1,
-                    T2=FLAGS.ep_T2,
-                    time_cutoff=FLAGS.time_cutoff,
-                    explicit_grad=FLAGS.ep_explicit_grad,
-                    thirdphase=FLAGS.ep_thirdphase,
-                )
-                # Set dummy tensors for the logging block below
-                cd_loss = torch.tensor(0.0, device=device)
-                pos_energy = torch.zeros(1, device=device)
-                neg_energy = torch.zeros(1, device=device)
             else:
                 nudge_disp = 0.0  # not applicable outside EP mode
                 free_disp = 0.0
                 flow_bins = [float('nan')] * 5  # not computed for BPTT/DEQ mode
-                # Standard BPTT / DEQ path
+                # Standard BPTT / DEQ / ViT / CNN path
                 total_loss, flow_loss, cd_loss, pos_energy, neg_energy, vt_mag, ut_mag = forward_all(
                     model=net_model,
                     flow_matcher=flow_matcher,
@@ -787,7 +678,7 @@ def train_loop(rank, world_size, argv):
             should_compute_spectral = (
                 rank == 0
                 and is_save_step
-                and FLAGS.model_type in ('ep_cnn', 'ep_mlp')
+                and FLAGS.model_type in ('ep_cnn', 'ep_mlp', 'ep_cet')
             )
             if should_compute_spectral and hasattr(raw_model, 'compute_jacobian_spectral_radius'):
                 x_sample = x_real_flow[:1].detach()
@@ -814,7 +705,7 @@ def train_loop(rank, world_size, argv):
             # ------------------------------------------------------------------
             # Adaptive Spectral Scale Controller
             # ------------------------------------------------------------------
-            if (is_ep_mode or is_ep_spring_mode) and FLAGS.adaptive_ss_rho_target > 0.0:
+            if (is_ep_spring_mode) and FLAGS.adaptive_ss_rho_target > 0.0:
                 # Measure ρ using a single sample from the current batch
                 x_sample_ss = x_real_flow[:1].detach()
                 if FLAGS.model_type == 'ep_mlp':
@@ -848,7 +739,7 @@ def train_loop(rank, world_size, argv):
             # ------------------------------------------------------------------
             skip_this_step = False
             skip_reason = ""
-            if (is_ep_mode or is_ep_spring_mode):
+            if (is_ep_spring_mode):
                 if FLAGS.skip_nudge_disp_threshold > 0 and nudge_disp > FLAGS.skip_nudge_disp_threshold:
                     skip_this_step = True
                     skip_reason = f"nudge_disp={nudge_disp:.2f} > {FLAGS.skip_nudge_disp_threshold}"
@@ -877,7 +768,7 @@ def train_loop(rank, world_size, argv):
                 sps = steps_per_log / elapsed if elapsed > 1e-9 else 0.0
                 last_log_time = now
                 curr_lr = sched.get_last_lr()[0]
-                if is_ep_mode or is_ep_spring_mode:
+                if is_ep_spring_mode:
                     ep_ratio = nudge_disp / free_disp if free_disp > 1e-12 else float('inf')
                     curr_ss = raw_model.spectral_scale
                     ep_str = f", ss={curr_ss:.4f}, beta={eff_beta:.6f}, nudge_disp={nudge_disp:.4e}, free_disp={free_disp:.4e}, n/f_ratio={ep_ratio:.4e}"
@@ -915,7 +806,7 @@ def train_loop(rank, world_size, argv):
                     _save_img(final_01, os.path.join(savedir, f"{tag}_generated_FM_images_step_{step}.png"), nrow=8)
 
                     # Energy gradient descent generation (neuromorphic inference mode)
-                    if FLAGS.gen_mode == 'energy_gd' and FLAGS.model_type in ('ep_cnn', 'ep_mlp'):
+                    if FLAGS.gen_mode == 'energy_gd' and FLAGS.model_type in ('ep_cnn', 'ep_mlp', 'ep_cet'):
                         mdl._gen_energy_gd = True
                         with torch.no_grad():
                             init_egd = torch.randn(64, *img_shape, device=device)
@@ -963,7 +854,7 @@ def train_loop(rank, world_size, argv):
                 logging.info(f"[Rank 0] Saved checkpoint => {ckpt_numbered}")
 
                 # EP convergence diagnostic plot
-                if FLAGS.model_type in ("ep_cnn", "ep_mlp"):
+                if FLAGS.model_type in ("ep_cnn", "ep_mlp", "ep_cet"):
                     sample_x = real_batch[:1].to(device)  # single sample
                     raw_model = net_model.module if hasattr(net_model, 'module') else net_model
                     raw_model.potential(sample_x, torch.tensor(0.0, device=device), record_trace=True)

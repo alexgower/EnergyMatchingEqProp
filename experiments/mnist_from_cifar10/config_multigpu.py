@@ -45,6 +45,16 @@ def define_flags():
         "Channel dims for EP CNN layers: [s1_channels, s2_channels, s3_channels, s4_dim]. "
         "Spatial dims are fixed: s1=14x14, s2=7x7, s3=7x7, s4=flat vector.")
 
+    # CET (Cross-attention Energy Transformer) model parameters
+    flags.DEFINE_integer('cet_token_dim', 128, 'CET token dimension')
+    flags.DEFINE_integer('cet_n_heads', 4, 'CET attention heads')
+    flags.DEFINE_integer('cet_head_dim', 32, 'CET head dimension')
+    flags.DEFINE_integer('cet_n_memories', 512, 'CET memory bank size')
+    flags.DEFINE_integer('cet_patch_size', 7, 'CET patch size (must divide img_size)')
+    flags.DEFINE_integer('cet_stride', 0, 'CET patch stride (0 = same as patch_size)')
+    flags.DEFINE_float('cet_inv_temp', 0.25, 'CET attention inverse temperature')
+    flags.DEFINE_boolean('cet_normalize_tokens', False, 'CET token normalization')
+
     # Flow/EBM Model parameters (MNIST: downscaled to ~2M params)
     flags.DEFINE_integer("num_channels", 32, "Base channels (CIFAR-10: 128)")
     flags.DEFINE_integer("num_res_blocks", 2, "Number of resblocks per stage")

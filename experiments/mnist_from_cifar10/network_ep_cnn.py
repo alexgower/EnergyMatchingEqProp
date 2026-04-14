@@ -1,4 +1,4 @@
-# File: network_ep.py
+# File: network_ep_cnn.py
 # EP-compatible recurrent CNN energy model for MNIST (1×28×28).
 #
 # Energy function with bilinear couplings between adjacent hidden state layers.
@@ -48,7 +48,7 @@ class EBEPModelWrapper(nn.Module):
     Output: V(x) = E(x, s*) · output_scale
     """
 
-    def __init__(self, T=50, epsilon_ep=0.5, output_scale=1.0, energy_clamp=None, init_gain=1.0, activation='identity', act_s4='', skip_s4=False, spectral_norm_enabled=False, learning_mode='bptt', neumann_K=10, spectral_scale=1.0, x_intra_weights=False, lambda_spring=10.0, cnn_channels=None):
+    def __init__(self, T=50, epsilon_ep=0.5, output_scale=1.0, energy_clamp=None, init_gain=1.0, activation='identity', act_s4='', skip_s4=False, spectral_norm_enabled=False, spectral_scale=1.0, x_intra_weights=False, lambda_spring=10.0, cnn_channels=None):
         super().__init__()
         if cnn_channels is None:
             cnn_channels = [32, 64, 64, 256]
@@ -57,8 +57,6 @@ class EBEPModelWrapper(nn.Module):
         self.epsilon_ep = epsilon_ep
         self.output_scale = output_scale
         self.energy_clamp = energy_clamp
-        self.learning_mode = learning_mode
-        self.neumann_K = neumann_K
         self.spectral_scale = spectral_scale
         self.x_intra_weights = x_intra_weights
         self.lambda_spring = lambda_spring
@@ -220,12 +218,15 @@ class EBEPModelWrapper(nn.Module):
 
     def _energy(self, s0, s1, s2, s3, s4):
         """
-        Compute E = ½Σ||sⁿ||² - Φ_coupling per sample => shape (B,).
-        Used for potential V(x) = E(x, h*) · output_scale.
+        Compute E = ½||s0||² + ½Σ||sⁿ||² - Φ_coupling per sample => shape (B,).
+        Includes ½||x||² so that velocity_energy_gd and ep_spring_gradient_step
+        are fully consistent: the x quad cancels in (E_β - E*) / β (since x is
+        detached), and provides the correct restoring force in velocity_energy_gd.
         """
         B = s0.size(0)
 
-        quad = 0.5 * (s1.view(B, -1).pow(2).sum(dim=1)
+        quad = 0.5 * (s0.view(B, -1).pow(2).sum(dim=1)
+                      + s1.view(B, -1).pow(2).sum(dim=1)
                       + s2.view(B, -1).pow(2).sum(dim=1)
                       + s3.view(B, -1).pow(2).sum(dim=1)
                       + s4.pow(2).sum(dim=1))
@@ -249,290 +250,6 @@ class EBEPModelWrapper(nn.Module):
         coupling = self._coupling(s0, s1, s2, s3, s4)
 
         return (1.0 - eps) * quad + eps * coupling  # (B,)
-
-    def _converge(self, x, record_trace=False):
-        """
-        Run T steps of gradient descent on hidden states.
-        Returns equilibrium states.
-        Maintains autograd graph through the entire unrolling (BPTT).
-        """
-        B = x.size(0)
-        device = x.device
-
-        # Initialize hidden states to zeros
-        s1 = torch.zeros(B, self.cnn_channels[0], 14, 14, device=device, requires_grad=True)
-        s2 = torch.zeros(B, self.cnn_channels[1], 7, 7, device=device, requires_grad=True)
-        s3 = torch.zeros(B, self.cnn_channels[2], 7, 7, device=device, requires_grad=True)
-        s4 = torch.zeros(B, self.cnn_channels[3], device=device, requires_grad=True)
-
-        trace = [] if record_trace else None
-
-        for t in range(self.T):
-            # Record norms for batch[0] before update
-            if record_trace:
-                trace.append({
-                    "s1": s1[0].norm().item(),
-                    "s2": s2[0].norm().item(),
-                    "s3": s3[0].norm().item(),
-                    "s4": s4[0].norm().item(),
-                    "s1_neurons": self._sample_neurons(s1[0]),
-                    "s2_neurons": self._sample_neurons(s2[0]),
-                    "s3_neurons": self._sample_neurons(s3[0]),
-                    "s4_neurons": self._sample_neurons(s4[0]),
-                })
-
-            Phi = self._primitive(x, s1, s2, s3, s4).sum()
-
-            grads = torch.autograd.grad(
-                Phi, [s1, s2, s3, s4],
-                create_graph=True,
-            )
-
-            # Primitive dynamics: s = ∇_s Φ
-            s1, s2, s3, s4 = grads
-
-        if record_trace:
-            trace.append({
-                "s1": s1[0].norm().item(),
-                "s2": s2[0].norm().item(),
-                "s3": s3[0].norm().item(),
-                "s4": s4[0].norm().item(),
-                "s1_neurons": self._sample_neurons(s1[0]),
-                "s2_neurons": self._sample_neurons(s2[0]),
-                "s3_neurons": self._sample_neurons(s3[0]),
-                "s4_neurons": self._sample_neurons(s4[0]),
-            })
-            self._last_convergence_trace = trace
-
-        return s1, s2, s3, s4
-
-    def _converge_deq(self, x, record_trace=False):
-        """
-        DEQ convergence: T detached forward steps to h*, then K steps with graph.
-        Each graph-enabled step = 1 Neumann iteration = 1 EP nudged step.
-        K=1: simplest phantom grad. K=T: equivalent to full BPTT.
-        """
-        B = x.size(0)
-        device = x.device
-
-        # Phase 1: T detached forward steps to reach h*
-        # x.detach() is used here because we don't want to build a graph
-        # through T steps (that's the whole point of DEQ). The fixed point
-        # equation s* = ∇_s Φ(x, s*) has the same solution whether x is
-        # detached or not — detach only affects 2nd-order gradients (∂²Φ/∂s∂x),
-        # not the forward dynamics.
-        s1 = torch.zeros(B, self.cnn_channels[0], 14, 14, device=device)
-        s2 = torch.zeros(B, self.cnn_channels[1], 7, 7, device=device)
-        s3 = torch.zeros(B, self.cnn_channels[2], 7, 7, device=device)
-        s4 = torch.zeros(B, self.cnn_channels[3], device=device)
-
-        trace = [] if record_trace else None
-
-        with torch.enable_grad():
-            for t in range(self.T):
-                if record_trace:
-                    trace.append({
-                        "s1": s1[0].norm().item(),
-                        "s2": s2[0].norm().item(),
-                        "s3": s3[0].norm().item(),
-                        "s4": s4[0].norm().item(),
-                        "s1_neurons": self._sample_neurons(s1[0]),
-                        "s2_neurons": self._sample_neurons(s2[0]),
-                        "s3_neurons": self._sample_neurons(s3[0]),
-                        "s4_neurons": self._sample_neurons(s4[0]),
-                    })
-
-                s1 = s1.detach().requires_grad_(True)
-                s2 = s2.detach().requires_grad_(True)
-                s3 = s3.detach().requires_grad_(True)
-                s4 = s4.detach().requires_grad_(True)
-                Phi = self._primitive(x.detach(), s1, s2, s3, s4).sum()
-                grads = torch.autograd.grad(Phi, [s1, s2, s3, s4])
-                s1, s2, s3, s4 = [g.detach() for g in grads]
-
-        # Phase 2: K steps with create_graph=True (Neumann backward)
-        # Live x (not detached) is needed here so the Neumann iterations
-        # build a graph connecting s* back to x. This enables computation of
-        # ds*/dx (the implicit gradient) when velocity() later calls
-        # ∂V/∂x = ∂E/∂x + (∂E/∂s*)·(ds*/dx). With x.detach(), ds*/dx = 0
-        # and the implicit gradient contribution would be lost entirely.
-        s1 = s1.requires_grad_(True)
-        s2 = s2.requires_grad_(True)
-        s3 = s3.requires_grad_(True)
-        s4 = s4.requires_grad_(True)
-
-        for k in range(self.neumann_K):
-            if record_trace:
-                trace.append({
-                    "s1": s1[0].norm().item(),
-                    "s2": s2[0].norm().item(),
-                    "s3": s3[0].norm().item(),
-                    "s4": s4[0].norm().item(),
-                    "s1_neurons": self._sample_neurons(s1[0]),
-                    "s2_neurons": self._sample_neurons(s2[0]),
-                    "s3_neurons": self._sample_neurons(s3[0]),
-                    "s4_neurons": self._sample_neurons(s4[0]),
-                })
-            Phi = self._primitive(x, s1, s2, s3, s4).sum()
-            s1, s2, s3, s4 = torch.autograd.grad(
-                Phi, [s1, s2, s3, s4], create_graph=True
-            )
-
-        if record_trace:
-            trace.append({
-                "s1": s1[0].norm().item(),
-                "s2": s2[0].norm().item(),
-                "s3": s3[0].norm().item(),
-                "s4": s4[0].norm().item(),
-                "s1_neurons": self._sample_neurons(s1[0]),
-                "s2_neurons": self._sample_neurons(s2[0]),
-                "s3_neurons": self._sample_neurons(s3[0]),
-                "s4_neurons": self._sample_neurons(s4[0]),
-            })
-            self._last_convergence_trace = trace
-
-        return s1, s2, s3, s4
-
-    # ------------------------------------------------------------------
-    # EP training mode — O(1) memory for both phases
-    # ------------------------------------------------------------------
-
-    def _converge_ep_free(self, x, T1, record_trace=False):
-        """
-        Free phase: run T1 steps of detached primitive dynamics.
-        No autograd graph is built — O(1) memory regardless of T1.
-        Returns [s1, s2, s3, s4] as plain (detached) tensors.
-        """
-        B = x.size(0)
-        device = x.device
-        s1 = torch.zeros(B, self.cnn_channels[0], 14, 14, device=device)
-        s2 = torch.zeros(B, self.cnn_channels[1], 7, 7, device=device)
-        s3 = torch.zeros(B, self.cnn_channels[2], 7, 7, device=device)
-        s4 = torch.zeros(B, self.cnn_channels[3], device=device)
-
-        trace = [] if record_trace else None
-
-        with torch.enable_grad():
-            for _ in range(T1):
-                if record_trace:
-                    trace.append({
-                        "s1": s1[0].norm().item(),
-                        "s2": s2[0].norm().item(),
-                        "s3": s3[0].norm().item(),
-                        "s4": s4[0].norm().item(),
-                        "s1_neurons": self._sample_neurons(s1[0]),
-                        "s2_neurons": self._sample_neurons(s2[0]),
-                        "s3_neurons": self._sample_neurons(s3[0]),
-                        "s4_neurons": self._sample_neurons(s4[0]),
-                    })
-
-                s1 = s1.detach().requires_grad_(True)
-                s2 = s2.detach().requires_grad_(True)
-                s3 = s3.detach().requires_grad_(True)
-                s4 = s4.detach().requires_grad_(True)
-                Phi = self._primitive(x.detach(), s1, s2, s3, s4).sum()
-                grads = torch.autograd.grad(Phi, [s1, s2, s3, s4])
-                s1, s2, s3, s4 = [g.detach() for g in grads]
-
-        if record_trace:
-            trace.append({
-                "s1": s1[0].norm().item(),
-                "s2": s2[0].norm().item(),
-                "s3": s3[0].norm().item(),
-                "s4": s4[0].norm().item(),
-                "s1_neurons": self._sample_neurons(s1[0]),
-                "s2_neurons": self._sample_neurons(s2[0]),
-                "s3_neurons": self._sample_neurons(s3[0]),
-                "s4_neurons": self._sample_neurons(s4[0]),
-            })
-            self._last_convergence_trace = trace
-
-        return [s1, s2, s3, s4]  # fully detached
-
-
-    def _converge_ep_nudged(self, x, h_star, beta, ut, T2):
-        """
-        Nudged phase: run T2 steps of primitive ascent on
-            Phi_nudged = (1-eps)*(1/2)||h||^2 + eps*(Phi_coupling - beta*L(h))
-        where L(h) = ||v(x,h) - ut||^2 and v = -output_scale * grad_x E.
-
-        Each step requires create_graph=True for the inner grad_x E so that
-        dL/ds flows back through the velocity (mixed Hessian d2E/dx ds).
-        The graph is discarded after each step — O(1) memory still holds.
-
-        h_star: list [s1*, s2*, s3*, s4*]  (detached)
-        Returns [s1_beta, s2_beta, s3_beta, s4_beta]  (detached)
-        """
-        eps = self.epsilon_ep
-        scale = self.output_scale
-
-        s1, s2, s3, s4 = [h.detach().clone() for h in h_star]
-
-        with torch.enable_grad():
-            for _ in range(T2):
-                s1 = s1.detach().requires_grad_(True)
-                s2 = s2.detach().requires_grad_(True)
-                s3 = s3.detach().requires_grad_(True)
-                s4 = s4.detach().requires_grad_(True)
-
-                # --- compute L(h) ---
-                # L depends on h via v = -output_scale * grad_x E(x, h).
-                # To get dL/dh, we need h_grad IN the E_for_v call so that
-                # the autograd graph connects: L -> v -> grad_x E -> E -> h_grad.
-                # create_graph=True is required so backward can compute d(grad_x E)/dh.
-                x_req = x.detach().requires_grad_(True)
-                E_for_v = self._energy(x_req,
-                                       s1, s2,
-                                       s3, s4).sum()  # h_grad tensors IN graph
-                # ∂L/∂s = 2(v-u)·∂v/∂s = 2(v-u)·(-output_scale·∂²E/∂x∂s)
-                grad_x_E = torch.autograd.grad(E_for_v, x_req, create_graph=True)[0]
-                v = -scale * grad_x_E  # (B, 1, 28, 28)
-                L = (v - ut).pow(2).mean()  # scalar, depends on s via grad_x_E
-
-                # Nudged primitive: Phi_nudged = Phi_free - eps*beta*L
-                Phi_free = self._primitive(x.detach(), s1, s2, s3, s4).sum()
-                Phi_nudged = Phi_free - eps * beta * L
-
-                grads = torch.autograd.grad(Phi_nudged, [s1, s2, s3, s4])
-                s1, s2, s3, s4 = [g.detach() for g in grads]
-                # Graph discarded here — O(1) memory across steps
-
-        return [s1, s2, s3, s4]  # fully detached
-
-    def ep_gradient_step(self, x, h_star, h_beta, beta, ut, explicit_grad=False):
-        """
-        Compute the full EP gradient estimator and accumulate into param.grad:
-
-            ep_loss = (1/beta) * [E(h_beta) - E(h*)]  +  L(h_beta)
-
-        When explicit_grad=True, L(h_beta) contributes ∂L/∂θ via create_graph=True.
-        When explicit_grad=False (default), L(h_beta) is detached from θ,
-        giving implicit-only EP. The implicit gradient dominates by 1/(1-ρ).
-
-        Accumulates into param.grad (replaces flow_loss.backward()).
-        """
-        scale = self.output_scale
-        s1_b, s2_b, s3_b, s4_b = [h.detach() for h in h_beta]
-        s1_s, s2_s, s3_s, s4_s = [h.detach() for h in h_star]
-        x_det = x.detach()
-
-        # 1. Implicit gradient: (E_beta - E_star) / beta  (live theta, x & h detached)
-        E_beta = self._energy(x_det, s1_b, s2_b, s3_b, s4_b)  # (B,)
-        E_star = self._energy(x_det, s1_s, s2_s, s3_s, s4_s)  # (B,)
-
-        # 2. Explicit gradient: L(h_beta)
-        #    create_graph controls whether ∂L/∂θ flows through the velocity.
-        x_req = x_det.requires_grad_(False).detach().requires_grad_(True)
-        E_for_v = self._energy(x_req, s1_b, s2_b, s3_b, s4_b)  # (B,)  live theta
-        grad_x_E = torch.autograd.grad(E_for_v.sum(), x_req, create_graph=explicit_grad)[0]
-        if not explicit_grad:
-            grad_x_E = grad_x_E.detach()
-        v_beta = -scale * grad_x_E
-        L_beta = (v_beta - ut).pow(2).mean()
-
-        # Full EP estimator
-        ep_loss = (E_beta - E_star).mean() / beta + L_beta
-        ep_loss.backward()
 
     # ------------------------------------------------------------------
     # Spring-clamped EP — no create_graph anywhere, O(1) memory
@@ -726,14 +443,8 @@ class EBEPModelWrapper(nn.Module):
         Compute velocity via energy gradient descent (neuromorphic inference mode).
 
         x is FIXED, only hidden states h evolve to equilibrium via the
-        primitive dynamics. Velocity includes x's quadratic self-regularisation
-        to match what x experiences during spring-clamped training:
-
-            v = -output_scale * grad_x [E(x, h*) + (1/2)||x||^2]
-              = output_scale * (grad_x coupling - x)
-
-        Without the (1/2)||x||^2 term, x has no restoring force and pixels
-        with large coupling gradients diverge (causing speckle artifacts).
+        primitive dynamics. Velocity uses full _energy (which now includes
+        ½||x||²), providing the same restoring force as spring-clamped training.
 
         Args:
             x: (B, 1, 28, 28) input tensor
@@ -751,60 +462,29 @@ class EBEPModelWrapper(nn.Module):
         with torch.enable_grad():
             x_req = x_det.clone().requires_grad_(True)
             B = x_req.size(0)
-            # E_int includes x quadratic, matching spring training's x_kinetic
-            E_int = self._energy(x_req, s1, s2, s3, s4) + 0.5 * x_req.pow(2).view(B, -1).sum(dim=1)
-            v = -self.output_scale * torch.autograd.grad(E_int.sum(), x_req)[0]
+            v = -self.output_scale * torch.autograd.grad(self._energy(x_req, s1, s2, s3, s4).sum(), x_req)[0]
         return v.detach()
 
     def potential(self, x, t, record_trace=False):
         """
         Compute V(x) = E(x, s*) · output_scale.
-        s* found by convergence; method depends on self.learning_mode.
+        s* found via spring-clamped free phase.
         """
         x_req = x if x.requires_grad else x.clone().requires_grad_(True)
-
-        if self.learning_mode == 'deq':
-            s1, s2, s3, s4 = self._converge_deq(x_req, record_trace=record_trace)
-        elif self.learning_mode == 'spring':
-            # Spring EP: x is dynamic, trace includes x norms/neurons alongside s1-s4
-            # TODO - see if need to do something with x now dynamic variable
-            _, h_list = self._converge_ep_spring_free(
-                x_req, self.T, self.lambda_spring, record_trace=record_trace)
-            s1, s2, s3, s4 = h_list
-        elif self.learning_mode == 'ep':
-            s1, s2, s3, s4 = self._converge_ep_free(x_req, self.T, record_trace=record_trace)
-        else:  # 'bptt'
-            s1, s2, s3, s4 = self._converge(x_req, record_trace=record_trace)
-
+        _, h_list = self._converge_ep_spring_free(
+            x_req, self.T, self.lambda_spring, record_trace=record_trace)
+        s1, s2, s3, s4 = h_list
         E = self._energy(x_req, s1, s2, s3, s4)
-
         V = E * self.output_scale
         if self.energy_clamp is not None and self.energy_clamp > 0:
             V = soft_clamp(V, self.energy_clamp)
         return V
 
     def velocity(self, x, t):
-        """Compute velocity field => shape (B, C, H, W).
-
-        Spring mode: v = output_scale * lambda_spring * (x* - x_t).
-          Matches training exactly — no autograd needed.
-        All other modes: v = -∇_x V(x) via autograd through potential().
-        """
-        if self.learning_mode == 'spring':
-            x_det = x.detach()
-            x_star, _ = self._converge_ep_spring_free(x_det, self.T, self.lambda_spring)
-            return self.output_scale * self.lambda_spring * (x_star - x_det)
-        else:
-            with torch.enable_grad():
-                x = x.clone().detach().requires_grad_(True)
-                V = self.potential(x, t)
-                dVdx = torch.autograd.grad(
-                    outputs=V,
-                    inputs=x,
-                    grad_outputs=torch.ones_like(V),
-                    create_graph=True,
-                )[0]
-                return -dVdx
+        """Spring-mode velocity: v = output_scale * lambda_spring * (x* - x_t)."""
+        x_det = x.detach()
+        x_star, _ = self._converge_ep_spring_free(x_det, self.T, self.lambda_spring)
+        return self.output_scale * self.lambda_spring * (x_star - x_det)
 
     def forward(self, t, x, return_potential=False, *args, **kwargs):
         """Same signature as EBViTModelWrapper."""

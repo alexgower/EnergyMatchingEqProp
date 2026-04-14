@@ -25,7 +25,7 @@ flags.DEFINE_string("ckpt", "", "Path to checkpoint file (required)")
 flags.DEFINE_integer("n_evals", 20, "Number of forward passes to average over")
 
 from network_ep_mlp import EBEPMLPModelWrapper
-from network_ep import EBEPModelWrapper
+from network_ep_cnn import EBEPModelWrapper
 
 
 def build_model(device):
