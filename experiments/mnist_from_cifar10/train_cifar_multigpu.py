@@ -480,6 +480,8 @@ def train_loop(rank, world_size, argv):
             spectral_scale=FLAGS.ep_spectral_scale,
             lambda_spring=FLAGS.lambda_spring,
             normalize_tokens=FLAGS.cet_normalize_tokens,
+            enc_act=FLAGS.cet_enc_act,
+            dense_encoder=FLAGS.cet_dense_encoder,
         ).to(device)
     else:
         # Default: UNet + ViT head (paper architecture)
@@ -526,7 +528,11 @@ def train_loop(rank, world_size, argv):
     # 4) Optimizer, scheduler
     # -----------------------------------------------------------------------
     if FLAGS.model_type == 'ep_cet' and FLAGS.cet_z_lr_mult != 1.0:
-        x_params = [raw_model.encoder_weight, raw_model.encoder_bias]
+        # x-side params: encoder (weight or linear) + encoder bias + visible bias
+        if FLAGS.cet_dense_encoder:
+            x_params = [raw_model.encoder_linear.weight, raw_model.encoder_bias, raw_model.visible_bias]
+        else:
+            x_params = [raw_model.encoder_weight, raw_model.encoder_bias, raw_model.visible_bias]
         z_params = [raw_model.memory_weight, raw_model.W_K, raw_model.W_Q, raw_model.pos_bias]
         optim = torch.optim.Adam([
             {'params': x_params, 'lr': FLAGS.lr},

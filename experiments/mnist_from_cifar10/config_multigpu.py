@@ -55,6 +55,8 @@ def define_flags():
     flags.DEFINE_float('cet_inv_temp', 0.25, 'CET attention inverse temperature')
     flags.DEFINE_boolean('cet_normalize_tokens', False, 'CET token normalization')
     flags.DEFINE_float("cet_z_lr_mult", 1.0, "LR multiplier for z-only CET params (memory, attention, pos_bias)")
+    flags.DEFINE_string("cet_enc_act", "none", "Activation applied to z in encoder coupling term. Options: none, silu, relu2")
+    flags.DEFINE_boolean("cet_dense_encoder", False, "Use dense linear encoder instead of conv2d for CET")
 
     # Flow/EBM Model parameters (MNIST: downscaled to ~2M params)
     flags.DEFINE_integer("num_channels", 32, "Base channels (CIFAR-10: 128)")

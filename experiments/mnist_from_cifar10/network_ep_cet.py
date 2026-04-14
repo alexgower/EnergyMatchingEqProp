@@ -77,6 +77,8 @@ class EBEPCETModelWrapper(nn.Module):
         spectral_scale=1.0,
         lambda_spring=15.0,
         normalize_tokens=False,
+        enc_act="none",
+        dense_encoder=False,
     ):
         super().__init__()
 
@@ -96,6 +98,16 @@ class EBEPCETModelWrapper(nn.Module):
         self.lambda_spring = lambda_spring
         self.normalize_tokens = normalize_tokens
 
+        # Activation for z in encoder coupling
+        if enc_act == "none" or enc_act == "identity":
+            self.enc_act = None
+        elif enc_act == "silu":
+            self.enc_act = lambda z: torch.nn.functional.silu(z)
+        elif enc_act == "relu2":
+            self.enc_act = lambda z: torch.nn.functional.relu(z).pow(2)
+        else:
+            raise ValueError(f"Unknown enc_act: {enc_act}")
+
         # -- derived --
         self.stride = stride if stride is not None else patch_size
         self.grid_h = (img_size - patch_size) // self.stride + 1
@@ -106,15 +118,28 @@ class EBEPCETModelWrapper(nn.Module):
         # Learnable parameters
         # ----------------------------------------------------------------
 
-        # Encoder: conv2d kernel maps each image patch → token vector
-        # Shape: (D_T, C, P_H, P_W)
-        self.encoder_weight = nn.Parameter(
-            torch.empty(token_dim, img_channels, patch_size, patch_size)
-        )
-        nn.init.xavier_normal_(self.encoder_weight, gain=init_gain)
+        # Encoder weights
+        self.dense_encoder = dense_encoder
+        if dense_encoder:
+            # Dense linear: flattened image → all tokens
+            img_flat_dim = img_channels * img_size * img_size
+            self.encoder_linear = nn.Linear(img_flat_dim, self.n_patches * token_dim, bias=False)
+            nn.init.xavier_normal_(self.encoder_linear.weight, gain=init_gain)
+            self.encoder_weight = None  # not used
+        else:
+            # Conv2d kernel: each patch → token vector
+            # Shape: (D_T, C, P_H, P_W)
+            self.encoder_weight = nn.Parameter(
+                torch.empty(token_dim, img_channels, patch_size, patch_size)
+            )
+            nn.init.xavier_normal_(self.encoder_weight, gain=init_gain)
+            self.encoder_linear = None  # not used
 
         # Encoder bias: shared across patches, shape (D_T,)
         self.encoder_bias = nn.Parameter(torch.zeros(token_dim))
+
+        # Visible bias: learnable per-pixel offset on x (matches MLP's visible_bias)
+        self.visible_bias = nn.Parameter(torch.zeros(img_channels, img_size, img_size))
 
         # Positional bias: per-token per-feature, shape (N_P, D_T)
         self.pos_bias = nn.Parameter(torch.zeros(self.n_patches, token_dim))
@@ -169,17 +194,20 @@ class EBEPCETModelWrapper(nn.Module):
 
     def _encode(self, x):
         """
-        Conv2d encoding: image patches → token-space vectors.
-        x:  (B, C, H, W)
-        out: (B, N_P, D_T)
+        Encode image → token-space vectors.
+        Dense mode: Linear(flatten(x)) → (B, N_P, D_T)
+        Conv mode:  Conv2d(x) → (B, N_P, D_T)
         """
         c = self.spectral_scale
-        # Non-overlapping patches: stride = patch_size
-        enc = F.conv2d(x, c * self.encoder_weight, bias=None,
-                       stride=self.stride)                # (B, D_T, G_H, G_W)
-        B = enc.shape[0]
-        enc = enc.reshape(B, self.token_dim, -1)         # (B, D_T, N_P)
-        return enc.permute(0, 2, 1)                      # (B, N_P, D_T)
+        B = x.shape[0]
+        if self.dense_encoder:
+            enc = c * self.encoder_linear(x.reshape(B, -1))   # (B, N_P * D_T)
+            return enc.reshape(B, self.n_patches, self.token_dim)  # (B, N_P, D_T)
+        else:
+            enc = F.conv2d(x, c * self.encoder_weight, bias=None,
+                           stride=self.stride)                # (B, D_T, G_H, G_W)
+            enc = enc.reshape(B, self.token_dim, -1)          # (B, D_T, N_P)
+            return enc.permute(0, 2, 1)                       # (B, N_P, D_T)
 
     def _coupling(self, x, z):
         """
@@ -191,9 +219,14 @@ class EBEPCETModelWrapper(nn.Module):
 
         c = self.spectral_scale
 
+        # Visible bias: b · x  (per-pixel learnable offset)
+        B = x.shape[0]
+        phi_vis = (self.visible_bias.unsqueeze(0) * x).reshape(B, -1).sum(dim=1)  # (B,)
+
         # 1) Encoder: Σ_ij F(x,W)_ij · z_ij  +  Σ_ij z_ij · b_enc_i
         encoded = self._encode(x)                                   # (B, N_P, D_T)
-        phi_enc = (encoded * z).sum(dim=[1, 2])                     # (B,)
+        z_act = self.enc_act(z) if self.enc_act is not None else z
+        phi_enc = (encoded * z_act).sum(dim=[1, 2])                 # (B,)
         phi_bias = (z * self.encoder_bias).sum(dim=[1, 2])          # (B,)
 
         # 2) Positional bias: Σ_ij z_ij · b_pos_ij
@@ -214,7 +247,7 @@ class EBEPCETModelWrapper(nn.Module):
         phi_att = (1.0 / gamma) * torch.logsumexp(
             gamma * A, dim=-1).sum(dim=[1, 2])                      # (B,)
 
-        return phi_enc + phi_bias + phi_pos + phi_mem + phi_att
+        return phi_vis + phi_enc + phi_bias + phi_pos + phi_mem + phi_att
 
     def _energy(self, neurons):
         """
