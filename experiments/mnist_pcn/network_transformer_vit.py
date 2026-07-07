@@ -1,18 +1,11 @@
-# File: network.py
-# EBM models for MNIST (1×28×28).
-#
-# Two model options:
-#   1) "unet_vit" — UNet + ViT head (paper's described architecture)
-#   2) "cnn"      — Simple CNN + MLP (from the authors' earlier code)
-#
-# Both expose the same interface: potential(x, t), velocity(x, t), forward(t, x).
+# File: network_transformer_vit.py
+# Adapted from CIFAR-10 for MNIST (1×28×28).
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from torchcfm.models.unet.unet import UNetModelWrapper
-
 
 ##############################################################################
 # Simple Patch Embedding (like in ViT)
@@ -25,7 +18,7 @@ class PatchEmbed(nn.Module):
     def __init__(
         self,
         in_channels=1,
-        patch_size=7,
+        patch_size=7,  # NOTE: patch_size not specified in paper for MNIST. Using 7 so 28/7=4 patches per dim. Unsure.
         embed_dim=128,
         image_size=(28, 28),
         include_pos_embed=True
@@ -94,15 +87,14 @@ def dummy_time(x, value=0.5):
 
 
 ##############################################################################
-# 1) EBM with UNet + ViT head  (paper's described architecture)
+# 1) EBM with a patch-based ViT head
 ##############################################################################
 class EBViTModelWrapper(UNetModelWrapper):
     """
     Energy-Based Model with a patch-based ViT on top of the UNet output.
     Ignores the input time; always feeds a fixed dummy time to the UNet.
-
-    Adapted for MNIST: dim=(1, 28, 28), patch_size=7 => 4×4 = 16 patches.
-    Paper spec: embed_dim=128, 2 transformer layers, 2 heads, output_scale=100.
+    
+    Note: potential() and velocity() now accept (x, t) where t is ignored.
     """
 
     def __init__(
@@ -111,9 +103,9 @@ class EBViTModelWrapper(UNetModelWrapper):
         num_channels=32,
         num_res_blocks=2,
         channel_mult=[1, 2, 2],
-        attention_resolutions="14",
+        attention_resolutions="14",  # NOTE: not specified in paper for MNIST. Using 14 (=28/2). Unsure.
         num_heads=2,
-        num_head_channels=32,
+        num_head_channels=64,  # NOTE: not specified in paper for MNIST. Keeping CIFAR-10 value. Unsure.
         dropout=0.1,
         # UNet flags
         class_cond=False,
@@ -124,7 +116,7 @@ class EBViTModelWrapper(UNetModelWrapper):
         use_scale_shift_norm=False,
         use_new_attention_order=False,
         # ViT-specific
-        patch_size=7,
+        patch_size=7,  # NOTE: not specified in paper for MNIST. Using 7 so 28/7=4 patches per dim. Unsure.
         embed_dim=128,
         transformer_nheads=2,
         transformer_nlayers=2,
@@ -200,7 +192,7 @@ class EBViTModelWrapper(UNetModelWrapper):
         # Final linear to scalar: (B, 1) -> (B,)
         V = self.final_linear(pooled).view(-1)
         V = V * self.output_scale
-        if self.energy_clamp is not None and self.energy_clamp > 0:
+        if self.energy_clamp is not None:
             V = soft_clamp(V, self.energy_clamp)
         return V
 
@@ -233,111 +225,95 @@ class EBViTModelWrapper(UNetModelWrapper):
 
 
 ##############################################################################
-# 2) Simple CNN + MLP  (from the authors' earlier MNIST code)
+# 2) EBM with a simple MLP head (SiLU in the hidden layer)
 ##############################################################################
+class EBMLPModelWrapper(UNetModelWrapper):
+    """
+    Energy-Based Model that extends the UNet code but uses a simple MLP head.
+    Ignores the provided time; always feeds a fixed dummy time to the UNet.
+    
+    MLP architecture:
+        Global average pool -> Linear -> SiLU -> Linear -> scalar V(x,t).
+    """
 
-class DoubleConv(nn.Module):
-    """Two consecutive conv(3×3) + GELU. No normalization layers."""
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.conv1 = nn.Conv2d(
-            in_channels, out_channels, kernel_size=3, padding=1, bias=True
+    def __init__(
+        self,
+        dim=(1, 28, 28),
+        num_channels=32,
+        num_res_blocks=2,
+        channel_mult=[1, 2, 2],
+        attention_resolutions="14",
+        num_heads=2,
+        num_head_channels=64,
+        dropout=0.1,
+        # UNet flags
+        class_cond=False,
+        learn_sigma=False,
+        use_checkpoint=False,
+        use_fp16=False,
+        resblock_updown=False,
+        use_scale_shift_norm=False,
+        use_new_attention_order=False,
+        # EBM extras
+        output_scale=100.0,
+        energy_clamp=None,
+        **kwargs
+    ):
+        super().__init__(
+            dim=dim,
+            num_channels=num_channels,
+            num_res_blocks=num_res_blocks,
+            channel_mult=channel_mult,
+            attention_resolutions=attention_resolutions,
+            num_heads=num_heads,
+            num_head_channels=num_head_channels,
+            dropout=dropout,
+            class_cond=class_cond,
+            learn_sigma=learn_sigma,
+            use_checkpoint=use_checkpoint,
+            use_fp16=use_fp16,
+            resblock_updown=resblock_updown,
+            use_scale_shift_norm=use_scale_shift_norm,
+            use_new_attention_order=use_new_attention_order,
+            **kwargs
         )
-        self.conv2 = nn.Conv2d(
-            out_channels, out_channels, kernel_size=3, padding=1, bias=True
-        )
 
-    def forward(self, x):
-        x = F.gelu(self.conv1(x))
-        x = F.gelu(self.conv2(x))
-        return x
-
-
-class Downsample(nn.Module):
-    """Downsample by 2× using stride-2 conv (kernel_size=4, stride=2, pad=1)."""
-    def __init__(self, channels):
-        super().__init__()
-        self.conv = nn.Conv2d(
-            channels, channels, kernel_size=4, stride=2, padding=1, bias=True
-        )
-
-    def forward(self, x):
-        return self.conv(x)
-
-
-class Network_2M_MNIST28x28(nn.Module):
-    """
-    Simple CNN energy model for MNIST (~2M params).
-    - Input:  (B, 1, 28, 28)
-    - Output: (B, 1) scalar energy
-    - 2 stages: (1->64)->down->(64->128), skip dim = 192
-    - MLP: 192 -> 1024 -> 1024 -> 1
-    """
-    def __init__(self):
-        super().__init__()
-        # Stage 1: (1 -> 64), 28x28
-        self.doubleconv1 = DoubleConv(1, 64)
-        self.down1 = Downsample(64)        # 28->14
-
-        # Stage 2: (64 -> 128), 14x14
-        self.doubleconv2 = DoubleConv(64, 128)
-        self.down2 = Downsample(128)       # 14->7
-
-        # skip dimension = 64 + 128 = 192
-        # MLP: 192 -> 1024 -> 1024 -> 1
-        self.fc0 = nn.Linear(192, 1024, bias=True)
-        self.fc1 = nn.Linear(1024, 1024, bias=True)
-        self.out = nn.Linear(1024, 1, bias=True)
-
-    def forward(self, x):
-        s1 = self.doubleconv1(x)   # (B,64,28,28)
-        x = self.down1(s1)         # (B,64,14,14)
-
-        s2 = self.doubleconv2(x)   # (B,128,14,14)
-        x = self.down2(s2)         # (B,128,7,7)
-
-        # Global average pool skip features
-        skip1 = F.adaptive_avg_pool2d(s1, (1, 1)).view(s1.size(0), -1)  # (B,64)
-        skip2 = F.adaptive_avg_pool2d(s2, (1, 1)).view(s2.size(0), -1)  # (B,128)
-
-        concat_skips = torch.cat([skip1, skip2], dim=1)  # (B,192)
-
-        out = F.gelu(self.fc0(concat_skips))
-        out = F.gelu(self.fc1(out))
-        energy = self.out(out)  # (B,1)
-        return energy
-
-
-class EBCNNModelWrapper(nn.Module):
-    """
-    Wrapper around Network_2M_MNIST28x28 that provides the same interface as
-    EBViTModelWrapper: potential(x, t), velocity(x, t), forward(t, x).
-
-    This allows the CNN model to be used interchangeably with the UNet+ViT
-    model in the training and sampling scripts.
-    """
-
-    def __init__(self, output_scale=100.0, energy_clamp=None):
-        super().__init__()
-        self.cnn = Network_2M_MNIST28x28()
+        self.out_channels = dim[0]
         self.output_scale = output_scale
         self.energy_clamp = energy_clamp
+
+        # Global average pooling
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+
+        # Simple MLP: [Flatten -> Linear -> SiLU -> Linear -> scalar]
+        self.mlp = nn.Sequential(
+            nn.Flatten(),                     # => (B, C)
+            nn.Linear(self.out_channels, self.out_channels),
+            nn.SiLU(),
+            nn.Linear(self.out_channels, 1)   # => scalar output
+        )
 
     def potential(self, x, t):
         """
         Computes scalar potential V(x,t) => shape (B,).
-        Time is ignored (CNN is not time-conditioned).
+        Ignores the provided time.
         """
-        V = self.cnn(x).view(-1)  # (B,)
+        t_dummy = dummy_time(x, value=0.5)
+        # UNet forward: (B, C, H, W)
+        unet_out = super().forward(t_dummy, x)
+        # Global average pool: (B, C, 1, 1)
+        pooled = self.pool(unet_out)
+        # MLP: (B, 1) -> (B,)
+        V = self.mlp(pooled).view(-1)
         V = V * self.output_scale
-        if self.energy_clamp is not None and self.energy_clamp > 0:
+        if self.energy_clamp is not None:
             V = soft_clamp(V, self.energy_clamp)
         return V
 
     def velocity(self, x, t):
         """
         Computes -∂V/∂x => shape (B, C, H, W).
-        Time is ignored.
+        Ignores the provided time.
         """
         with torch.enable_grad():
             x = x.clone().detach().requires_grad_(True)
@@ -352,53 +328,11 @@ class EBCNNModelWrapper(nn.Module):
 
     def forward(self, t, x, return_potential=False, *args, **kwargs):
         """
-        Forward pass: same signature as EBViTModelWrapper.
+        Forward pass accepts a time tensor and an input tensor.
+        The provided time is ignored (dummy time is used internally).
         If return_potential=True, returns V(x,t); otherwise returns velocity.
         """
         if return_potential:
             return self.potential(x, t)
         else:
             return self.velocity(x, t)
-
-
-##############################################################################
-# Factory function: build model from FLAGS
-##############################################################################
-def build_model(FLAGS):
-    """
-    Instantiate the model based on FLAGS.model_type.
-      - "unet_vit": UNet + ViT head (paper's architecture)
-      - "cnn":      Simple CNN + MLP (authors' earlier code)
-    """
-    from experiments.mnist_new import config
-
-    energy_clamp = FLAGS.energy_clamp if FLAGS.energy_clamp > 0 else None
-
-    if FLAGS.model_type == "unet_vit":
-        ch_mult = config.parse_channel_mult(FLAGS)
-        return EBViTModelWrapper(
-            dim=(1, 28, 28),
-            num_channels=FLAGS.num_channels,
-            num_res_blocks=FLAGS.num_res_blocks,
-            channel_mult=ch_mult,
-            attention_resolutions=FLAGS.attention_resolutions,
-            num_heads=FLAGS.num_heads,
-            num_head_channels=FLAGS.num_head_channels,
-            dropout=FLAGS.dropout,
-            output_scale=FLAGS.output_scale,
-            energy_clamp=energy_clamp,
-            patch_size=7,
-            embed_dim=FLAGS.embed_dim,
-            transformer_nheads=FLAGS.transformer_nheads,
-            transformer_nlayers=FLAGS.transformer_nlayers,
-        )
-    elif FLAGS.model_type == "cnn":
-        return EBCNNModelWrapper(
-            output_scale=FLAGS.output_scale,
-            energy_clamp=energy_clamp,
-        )
-    else:
-        raise ValueError(
-            f"Unknown model_type '{FLAGS.model_type}'. "
-            f"Choose 'unet_vit' or 'cnn'."
-        )

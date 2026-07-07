@@ -1,5 +1,7 @@
 results_mnist_from_cifar10/
+results_mnist_pcn/
 logs/
 gen_*
 data/
 old_good_results/
+__pycache__/
