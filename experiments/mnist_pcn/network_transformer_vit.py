@@ -95,35 +95,37 @@ class EBViTModelWrapper(UNetModelWrapper):
     Ignores the input time; always feeds a fixed dummy time to the UNet.
     
     Note: potential() and velocity() now accept (x, t) where t is ignored.
+    # TODO learn what all parameters here do in detail and maybe optimise better at some point
     """
 
     def __init__(
         self,
-        dim=(1, 28, 28),
-        num_channels=32,
-        num_res_blocks=2,
-        channel_mult=[1, 2, 2],
-        attention_resolutions="14",  # NOTE: not specified in paper for MNIST. Using 14 (=28/2). Unsure.
-        num_heads=2,
-        num_head_channels=64,  # NOTE: not specified in paper for MNIST. Keeping CIFAR-10 value. Unsure.
-        dropout=0.1,
-        # UNet flags
-        class_cond=False,
-        learn_sigma=False,
-        use_checkpoint=False,
-        use_fp16=False,
-        resblock_updown=False,
-        use_scale_shift_norm=False,
-        use_new_attention_order=False,
-        # ViT-specific
-        patch_size=7,  # NOTE: not specified in paper for MNIST. Using 7 so 28/7=4 patches per dim. Unsure.
-        embed_dim=128,
-        transformer_nheads=2,
-        transformer_nlayers=2,
-        include_pos_embed=True,
-        # EBM extras
-        output_scale=100.0,
-        energy_clamp=None,
+        # --- UNet backbone parameters ---
+        dim=(1, 28, 28),           # Input image shape (C, H, W). CIFAR-10: (3, 32, 32)
+        num_channels=32,           # Base channel count in UNet. All stages scale from this. CIFAR-10: 128
+        num_res_blocks=2,          # Residual blocks per UNet resolution stage
+        channel_mult=[1, 2, 2],    # Per-stage channel multiplier → channels are [32, 64, 64]. CIFAR-10: [1,2,2,2]
+        attention_resolutions="14", # Apply self-attention at these spatial resolutions (csv). NOTE: unsure for MNIST, using 28/2=14. CIFAR-10: "16"
+        num_heads=2,               # Number of attention heads in UNet self-attention layers. CIFAR-10: 4
+        num_head_channels=64,      # Channels per attention head (overrides num_heads if set). NOTE: unsure for MNIST, keeping CIFAR-10 value
+        dropout=0.1,               # Dropout rate in UNet residual and attention layers
+        # UNet architectural flags (rarely changed)
+        class_cond=False,          # Class-conditional generation (unused — no labels)
+        learn_sigma=False,         # Learn noise variance (diffusion-specific, unused here)
+        use_checkpoint=False,      # Gradient checkpointing to save memory
+        use_fp16=False,            # Half-precision forward pass
+        resblock_updown=False,     # Use residual blocks for up/downsampling instead of conv
+        use_scale_shift_norm=False, # AdaGN: scale+shift norm by time embedding
+        use_new_attention_order=False, # Alternate attention implementation
+        # --- ViT head parameters (applied to UNet output) ---
+        patch_size=7,              # Split UNet output into patches of this size → 28/7=4×4=16 tokens. NOTE: unsure for MNIST. CIFAR-10: 4
+        embed_dim=128,             # Dimension of each patch token embedding. CIFAR-10: 128
+        transformer_nheads=2,      # Attention heads in the ViT transformer encoder. CIFAR-10: 4
+        transformer_nlayers=2,     # Number of transformer encoder layers (depth). CIFAR-10: 2
+        include_pos_embed=True,    # Add learnable positional embeddings to patch tokens
+        # --- Energy model parameters ---
+        output_scale=100.0,        # Multiplier for scalar energy V(x). CIFAR-10: 1000.0 (more pixels → larger energies)
+        energy_clamp=None,         # Tanh-based soft clamp on V(x). None = no clamping
         **kwargs
     ):
         super().__init__(
@@ -238,15 +240,16 @@ class EBMLPModelWrapper(UNetModelWrapper):
 
     def __init__(
         self,
-        dim=(1, 28, 28),
-        num_channels=32,
-        num_res_blocks=2,
-        channel_mult=[1, 2, 2],
-        attention_resolutions="14",
-        num_heads=2,
-        num_head_channels=64,
-        dropout=0.1,
-        # UNet flags
+        # --- UNet backbone parameters (same as EBViTModelWrapper) ---
+        dim=(1, 28, 28),           # Input image shape (C, H, W)
+        num_channels=32,           # Base channel count in UNet
+        num_res_blocks=2,          # Residual blocks per resolution stage
+        channel_mult=[1, 2, 2],    # Per-stage channel multiplier
+        attention_resolutions="14", # Self-attention at these spatial resolutions
+        num_heads=2,               # Attention heads in UNet
+        num_head_channels=64,      # Channels per attention head
+        dropout=0.1,               # Dropout rate
+        # UNet architectural flags (rarely changed)
         class_cond=False,
         learn_sigma=False,
         use_checkpoint=False,
@@ -254,9 +257,9 @@ class EBMLPModelWrapper(UNetModelWrapper):
         resblock_updown=False,
         use_scale_shift_norm=False,
         use_new_attention_order=False,
-        # EBM extras
-        output_scale=100.0,
-        energy_clamp=None,
+        # --- Energy model parameters ---
+        output_scale=100.0,        # Multiplier for scalar energy V(x)
+        energy_clamp=None,         # Tanh-based soft clamp on V(x). None = no clamping
         **kwargs
     ):
         super().__init__(

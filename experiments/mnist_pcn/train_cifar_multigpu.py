@@ -18,9 +18,6 @@ from torch.utils.data.distributed import DistributedSampler
 from absl import app, flags, logging
 import config_multigpu as config  # your config file
 
-sys.path.append(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-)
 
 config.define_flags()  # register all the flags
 FLAGS = flags.FLAGS
@@ -28,18 +25,18 @@ FLAGS = flags.FLAGS
 # 2) Import your usual goodies
 from torchvision import datasets, transforms
 
-from utils_cifar_imagenet import (
+from utils import (
     create_timestamped_dir,
     flow_weight,
     gibbs_sampling_time_sweep,
-    warmup_lr,
     ema,
     infiniteloop,
     save_pos_neg_grids,
     sde_euler_maruyama
 )
-# NOTE: generate_samples from utils is NOT imported because it hardcodes
-# CIFAR-10 dimensions (3, 32, 32). We use inline MNIST-correct generation below.
+from utils_mnist import (count_parameters, eqm_c_schedule, generate_and_save,
+                         velocity_cosine_similarity,
+                         log_pcn_step_diagnostics)
 
 
 # 3) Import EBM models
@@ -49,28 +46,12 @@ from network_cnn import EBCNNModelWrapper
 # TorchCFM flow classes
 from torchcfm.conditional_flow_matching import ExactOptimalTransportConditionalFlowMatcher
 
+# Optional: Weights & Biases
+try:
+    import wandb
+except ImportError:
+    wandb = None
 
-##############################################################################
-# Helper: count_parameters
-##############################################################################
-def count_parameters(module: torch.nn.Module):
-    """Count the total trainable parameters in a module."""
-    return sum(p.numel() for p in module.parameters() if p.requires_grad)
-
-
-##############################################################################
-# EqM c(γ) schedule
-##############################################################################
-def eqm_c_schedule(gamma, c_type, a=0.8, b=1.0):
-    """Compute the EqM c(γ) target scaling. c(1)=0 enforces equilibrium at data."""
-    if c_type == "linear":
-        return 1.0 - gamma
-    elif c_type == "truncated":
-        return torch.where(gamma <= a, torch.ones_like(gamma), (1.0 - gamma) / (1.0 - a))
-    elif c_type == "piecewise":
-        return torch.where(gamma <= a, b - (b - 1.0) / a * gamma, (1.0 - gamma) / (1.0 - a))
-    else:
-        raise ValueError(f"Unknown eqm_c_type: {c_type}")
 
 
 ##############################################################################
@@ -225,6 +206,41 @@ def train_loop(rank, world_size, argv):
             logging.info(f"{key} = {val}")
         logging.info("=============================================\n")
 
+        # ---- Weights & Biases ----
+        if FLAGS.wandb_project and wandb is not None:
+            run_name = FLAGS.wandb_run_name
+            if not run_name:
+                # Auto-generate: base identity + any flags changed from defaults
+                base = f"{FLAGS.model_type}_{FLAGS.pool_type}_{FLAGS.training_objective}"
+                # Flags that are always in the base (skip in diff)
+                skip = {"model_type", "pool_type", "training_objective",
+                        "wandb_project", "wandb_run_name", "output_dir",
+                        "my_log_dir", "resume_ckpt", "gen_output_dir"}
+                changed = []
+                for name, flag in FLAGS.__flags.items():
+                    if name in skip:
+                        continue
+                    if flag.value != flag.default:
+                        # Shorten the value for readability
+                        v = flag.value
+                        if isinstance(v, bool):
+                            changed.append(f"{name}" if v else f"no{name}")
+                        elif isinstance(v, float) and v == int(v):
+                            changed.append(f"{name}{int(v)}")
+                        else:
+                            changed.append(f"{name}{v}")
+                diff = "_".join(changed)
+                run_name = f"{base}_{diff}" if diff else base
+            wandb.init(
+                project=FLAGS.wandb_project,
+                name=run_name,
+                config=FLAGS.flag_values_dict(),
+                dir=savedir,
+            )
+            logging.info(f"[Rank 0] W&B run: {wandb.run.url}")
+        elif FLAGS.wandb_project and wandb is None:
+            logging.warning("--wandb_project set but `wandb` not installed. Skipping.")
+
     # -----------------------------------------------------------------------
     # 2) Dataset with distributed sampler
     # -----------------------------------------------------------------------
@@ -238,7 +254,7 @@ def train_loop(rank, world_size, argv):
             download=True,
             transform=transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Normalize((0.5,),(0.5,))
+                transforms.Normalize((0.5,),(0.5,))  # [0,1] → [-1,1]: (x - 0.5) / 0.5
             ])
         )
         dist.barrier()  # allow other ranks to see the downloaded data
@@ -250,7 +266,7 @@ def train_loop(rank, world_size, argv):
             download=False,
             transform=transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Normalize((0.5,),(0.5,))
+                transforms.Normalize((0.5,),(0.5,))  # [0,1] → [-1,1]: (x - 0.5) / 0.5
             ])
         )
     img_shape = (1, 28, 28)
@@ -269,13 +285,35 @@ def train_loop(rank, world_size, argv):
     # -----------------------------------------------------------------------
     # 3) Model + DDP
     # -----------------------------------------------------------------------
-    if FLAGS.model_type in ("historical", "vgg5"):
-        version = "vgg5" if FLAGS.model_type == "vgg5" else "historical"
+    if FLAGS.model_type == "pcn":
+        # Stage 2: PCN energy relaxation velocity
+        from network_pcn import PCNVelocityWrapper
+        net_model = PCNVelocityWrapper(
+            gamma=FLAGS.pcn_gamma,
+            K=FLAGS.pcn_K,
+            dt_relax=FLAGS.pcn_dt,
+            async_mode=FLAGS.pcn_async,
+            init_mode=FLAGS.pcn_init_mode,
+            output_scale=FLAGS.output_scale,
+            energy_clamp=FLAGS.energy_clamp if FLAGS.energy_clamp and FLAGS.energy_clamp > 0 else None,
+            n_cg_steps=FLAGS.pcn_cg_steps,
+            pool_type=FLAGS.pool_type,
+            activation=FLAGS.activation,
+            error_param=FLAGS.pcn_error_param,
+        ).to(device)
+        if FLAGS.pcn_float64:
+            net_model = net_model.to(torch.float64)
+            logging.info("[PCN] Using float64 for exact gradient correspondence")
+        if FLAGS.pcn_error_param:
+            logging.info("[PCN] Using error-parameterized dynamics (H ≈ I)")
+    elif FLAGS.model_type in ("historical", "vgg5", "mlp"):
+        version = FLAGS.model_type
         net_model = EBCNNModelWrapper(
             output_scale=FLAGS.output_scale,
             energy_clamp=FLAGS.energy_clamp if FLAGS.energy_clamp and FLAGS.energy_clamp > 0 else None,
             version=version,
             pool_type=FLAGS.pool_type,
+            activation=FLAGS.activation,
         ).to(device)
     else:
         # Default: UNet + ViT head (paper architecture)
@@ -324,9 +362,18 @@ def train_loop(rank, world_size, argv):
     optim = torch.optim.Adam(
         net_model.parameters(),
         lr=FLAGS.lr,
-        betas=(0.9, 0.95)
+        betas=(0.9, 0.95)  # From Energy Matching paper (lower β₂ than default 0.999)
     )
-    sched = torch.optim.lr_scheduler.LambdaLR(optim, lr_lambda=warmup_lr)
+    def lr_schedule(step):
+        """Warmup then optional cosine decay."""
+        if step < FLAGS.warmup:
+            return step / FLAGS.warmup
+        if FLAGS.lr_decay == "cosine":
+            progress = (step - FLAGS.warmup) / max(1, FLAGS.total_steps - FLAGS.warmup)
+            return 0.5 * (1.0 + math.cos(math.pi * progress))
+        return 1.0  # constant after warmup
+
+    sched = torch.optim.lr_scheduler.LambdaLR(optim, lr_lambda=lr_schedule)
 
     # -----------------------------------------------------------------------
     # 5) Optional checkpoint resume
@@ -361,19 +408,20 @@ def train_loop(rank, world_size, argv):
         if rank == 0:
             logging.info(f"[Rank 0] Resumed at step={start_step}")
 
-        # ---- Override saved hyperparameters with CLI flags ----
-        # The optimizer state dict restores lr from the checkpoint, silently
-        # ignoring the --lr flag. Force the CLI value into all param groups.
-        for pg in optim.param_groups:
-            pg['lr'] = FLAGS.lr
-            pg['initial_lr'] = FLAGS.lr  # LambdaLR uses setdefault('initial_lr'), so must set explicitly
-        # Reset the scheduler so it applies warmup based on the new lr.
-        # Without this, the scheduler's internal state still references the
-        # old lr and warmup behaves incorrectly.
-        sched = torch.optim.lr_scheduler.LambdaLR(optim, lr_lambda=warmup_lr)
-
-        if rank == 0:
-            logging.info(f"[Rank 0] Applied CLI overrides: lr={FLAGS.lr}")
+        # ---- Optionally override lr if CLI value differs from checkpoint ----
+        # optim.load_state_dict() restores the checkpoint's lr, which may differ
+        # from --lr if the user wants to change it on resume.
+        ckpt_lr = optim.param_groups[0]['lr']
+        if abs(FLAGS.lr - ckpt_lr) > 1e-12:
+            for pg in optim.param_groups:
+                pg['lr'] = FLAGS.lr
+                pg['initial_lr'] = FLAGS.lr
+            # Recreate scheduler with correct step count so warmup/cosine don't restart
+            sched = torch.optim.lr_scheduler.LambdaLR(
+                optim, lr_lambda=lr_schedule, last_epoch=start_step
+            )
+            if rank == 0:
+                logging.info(f"[Rank 0] Overriding lr: {ckpt_lr} → {FLAGS.lr} (at step {start_step})")
 
     # -----------------------------------------------------------------------
     # 6) Setup flow matcher, etc.
@@ -399,6 +447,10 @@ def train_loop(rank, world_size, argv):
             x_real_flow = next(datalooper).to(device)
             # Grab another batch for CD (independent from flow)
             x_real_cd = next(datalooper).to(device)
+            # Cast to float64 if PCN float64 mode
+            if FLAGS.model_type == "pcn" and FLAGS.pcn_float64:
+                x_real_flow = x_real_flow.to(torch.float64)
+                x_real_cd = x_real_cd.to(torch.float64)
 
             # ------------------------------------------------------------------
             # Forward + backward pass
@@ -432,7 +484,13 @@ def train_loop(rank, world_size, argv):
                 print(f"[DEBUG] Step {step} | backward() complete! Updating weights...", flush=True)
             pre_clip_norm = torch.nn.utils.clip_grad_norm_(net_model.parameters(), FLAGS.grad_clip)
 
-            optim.step()
+            # Skip weight update if gradient is an outlier (IFT spike)
+            grad_skipped = False
+            if FLAGS.grad_skip_threshold > 0 and pre_clip_norm > FLAGS.grad_skip_threshold:
+                grad_skipped = True
+                optim.zero_grad()  # discard the bad gradient
+            else:
+                optim.step()
             sched.step()
 
             # Update EMA
@@ -447,79 +505,76 @@ def train_loop(rank, world_size, argv):
                 sps = steps_per_log / elapsed if elapsed > 1e-9 else 0.0
                 last_log_time = now
                 curr_lr = sched.get_last_lr()[0]
+
+                log_dict = {
+                    "flow_loss": flow_loss.item(),
+                    "cd_loss": cd_loss.item(),
+                    "v_mag": vt_mag.item(),
+                    "u_mag": ut_mag.item(),
+                    "pos_energy_std": pos_energy.std().item(),
+                    "pos_energy_min": pos_energy.min().item(),
+                    "pos_energy_max": pos_energy.max().item(),
+                    "neg_energy_std": neg_energy.std().item(),
+                    "neg_energy_min": neg_energy.min().item(),
+                    "neg_energy_max": neg_energy.max().item(),
+                    "grad_norm": float(pre_clip_norm),
+                    "lr": curr_lr,
+                    "steps_per_sec": sps,
+                }
+
+                clip_status = 'SKIP' if grad_skipped else ('Y' if pre_clip_norm > FLAGS.grad_clip else 'N')
                 logging.info(
                     f"[Step {step}] "
-                    f"flow={flow_loss.item():.5f}, cd={cd_loss.item():.5f}, "
-                    f"v_mag={vt_mag.item():.5f}, u_mag={ut_mag.item():.5f}, "
-                    f"pos_std={pos_energy.std().item():.5f}, "
-                    f"pos_min={pos_energy.min().item():.5f}, pos_max={pos_energy.max().item():.5f}, "
-                    f"neg_std={neg_energy.std().item():.5f}, "
-                    f"neg_min={neg_energy.min().item():.5f}, neg_max={neg_energy.max().item():.5f}, "
-                    f"grad_norm={pre_clip_norm:.4f}, clipped={'Y' if pre_clip_norm > FLAGS.grad_clip else 'N'}, "
+                    f"flow={log_dict['flow_loss']:.5f}, cd={log_dict['cd_loss']:.5f}, "
+                    f"v_mag={log_dict['v_mag']:.5f}, u_mag={log_dict['u_mag']:.5f}, "
+                    f"pos_std={log_dict['pos_energy_std']:.5f}, "
+                    f"pos_min={log_dict['pos_energy_min']:.5f}, pos_max={log_dict['pos_energy_max']:.5f}, "
+                    f"neg_std={log_dict['neg_energy_std']:.5f}, "
+                    f"neg_min={log_dict['neg_energy_min']:.5f}, neg_max={log_dict['neg_energy_max']:.5f}, "
+                    f"grad_norm={log_dict['grad_norm']:.4f}, clipped={clip_status}, "
                     f"LR={curr_lr:.6f}, {sps:.2f} it/s"
                 )
+
+                # PCN per-step diagnostics (max|e|, max|dE/de|, v_cos)
+                if FLAGS.model_type == "pcn":
+                    log_pcn_step_diagnostics(
+                        raw_model, step, log_dict,
+                        data_batch=x_real_flow, v_cos_every=500,
+                    )
+
+                if wandb is not None and wandb.run is not None:
+                    wandb.log(log_dict, step=step)
 
             # -------------------------------------------------
             # Save checkpoint occasionally (rank=0)
             # -------------------------------------------------
             if rank == 0 and is_save_step:
-                # Generate SDE samples inline (can't use generate_samples from
-                # utils — it hardcodes CIFAR-10 dims (3,32,32))
-                # for tag, mdl in [("normal", raw_model), ("ema", ema_model)]:
-                for tag, mdl in [("normal", raw_model)]:
-                    mdl.eval()
-                    with torch.no_grad():
-                        init = torch.randn(64, *img_shape, device=device)
-                        dt_gen = 0.01
+                # Generate sample images for visual quality check
+                gen_models = [("normal", raw_model)]
+                if FLAGS.gen_ema:
+                    gen_models.append(("ema", ema_model))
+                for tag, mdl in gen_models:
+                    generate_and_save(mdl, tag, img_shape, step, savedir, device)
 
-                        # EqM: use convergence-based sampling (iterate until velocity is small)
-                        # FM: use fixed integration from t=0 to t=gen_t1
-                        use_convergence = (FLAGS.training_objective == "eqm"
-                                           and FLAGS.gen_converge_threshold > 0)
 
-                        if use_convergence:
-                            # Adaptive compute: iterate until velocity norm is small
-                            x = init.clone()
-                            max_gen_steps = 5000  # safety cap
-                            for gen_i in range(max_gen_steps):
-                                t_gen = torch.full((x.size(0),), gen_i * dt_gen, device=device)
-                                v = mdl(t_gen, x)
-                                x = x + v * dt_gen
-                                # Per-sample L2 norm (over all pixels), averaged over batch
-                                v_norm = v.view(v.size(0), -1).norm(dim=1).mean().item()
-                                if v_norm < FLAGS.gen_converge_threshold:
-                                    logging.info(f"  [{tag}] Converged at step {gen_i+1} (v_norm={v_norm:.4f})")
-                                    break
-                            else:
-                                logging.info(f"  [{tag}] Hit max {max_gen_steps} steps (v_norm={v_norm:.4f})")
-                            final = x.clamp(-1, 1)
-                            n_steps_used = min(gen_i + 1, max_gen_steps)
-                        else:
-                            # Fixed endpoint integration (default for FM)
-                            traj = sde_euler_maruyama(mdl, init, t0=0.0, t1=FLAGS.gen_t1, dt=dt_gen)
-                            final = traj[-1].clamp(-1, 1)
-                            n_steps_used = int(FLAGS.gen_t1 / dt_gen)
 
-                    from torchvision.utils import save_image as _save_img
-                    mode_tag = "converged" if use_convergence else f"t1_{FLAGS.gen_t1:.1f}"
-                    fname = f"{tag}_generated_images_step_{step}_{mode_tag}_nsteps{n_steps_used}.png"
-                    _save_img(final / 2.0 + 0.5, os.path.join(savedir, fname), nrow=8)
-                    mdl.train()
-
-                # (a) create real data batch
-                real_batch = next(datalooper).to(device)[:64]  # up to 64 for an 8x8 grid
-                # (b) negative samples via MCMC (time sweep)
-                x_neg_init = torch.randn_like(real_batch)
-                at_data_mask = torch.zeros(real_batch.size(0), dtype=torch.bool, device=device)
-                x_neg = gibbs_sampling_time_sweep(
-                    x_init=x_neg_init,
-                    model=raw_model,
-                    at_data_mask=at_data_mask,
-                    n_steps=FLAGS.n_gibbs,
-                    dt=FLAGS.dt_gibbs
-                )
-                # (c) Save side-by-side grids
-                save_pos_neg_grids(real_batch, x_neg, savedir, step)
+                # CD diagnostics: MCMC negative samples + pos/neg comparison grid
+                # Only run when CD is active (lambda_cd > 0), otherwise these are useless
+                if FLAGS.lambda_cd > 0:
+                    # (a) create real data batch
+                    real_batch = next(datalooper).to(device)[:64]  # up to 64 for an 8x8 grid
+                    # (b) negative samples via MCMC (time sweep)
+                    x_neg_init = torch.randn_like(real_batch)
+                    at_data_mask = torch.zeros(real_batch.size(0), dtype=torch.bool, device=device)
+                    x_neg = gibbs_sampling_time_sweep(
+                        x_init=x_neg_init,
+                        model=raw_model,
+                        at_data_mask=at_data_mask,
+                        n_steps=FLAGS.n_gibbs,
+                        dt=FLAGS.dt_gibbs
+                    )
+                    # (c) Save side-by-side grids
+                    save_pos_neg_grids(real_batch, x_neg, savedir, step)
 
                 ckpt_latest = os.path.join(savedir,
                                           f"{FLAGS.model}_mnist_weights_step_latest.pt")
@@ -538,6 +593,10 @@ def train_loop(rank, world_size, argv):
 
                 logging.info(f"[Rank 0] Saved checkpoint => {ckpt_latest}")
                 logging.info(f"[Rank 0] Saved checkpoint => {ckpt_numbered}")
+
+    # ---- Finalize W&B ----
+    if rank == 0 and wandb is not None and wandb.run is not None:
+        wandb.finish()
 
     dist.barrier()
     dist.destroy_process_group()

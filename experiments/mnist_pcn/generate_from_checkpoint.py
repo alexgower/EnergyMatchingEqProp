@@ -2,28 +2,31 @@
 """
 Generate images from a saved checkpoint with configurable generation parameters.
 
-Sweep dt and t1 (integration endpoint) without retraining.
-Extending t1 > 1.0 is equivalent to velocity rescaling (compensates for
-the systematic v_mag undershoot caused by MSE-optimal magnitude reduction).
+Supports two generation modes:
+  - Fixed-time integration: ODE from t=0 to t=t1 (sweep dt and t1).
+    Extending t1 > 1.0 compensates for the systematic v_mag undershoot
+    caused by MSE-optimal magnitude reduction.
+  - Convergence-based: Iterate until velocity norm < threshold (for EqM models).
+
+Integrators:
+  - euler: First-order Euler step. Fast (1 model eval/step).
+  - heun:  Second-order Heun's method. More accurate (2 model evals/step).
 
 Usage examples:
-  # Default generation
+  # Default generation (fixed t1=1.0, dt=0.01, euler)
   python generate_from_checkpoint.py \
-      --ckpt=results_mnist_pcn/EBMTime_20260405_16/checkpoint_50000.pt \
-      --output_dir=./gen_sweep
+      --ckpt=results_mnist_pcn/EM_mnist_pcn_.../checkpoint_50000.pt
 
-  # Sweep t1 values
-  python generate_from_checkpoint.py \
-      --ckpt=results_mnist_pcn/EBMTime_20260405_16/checkpoint_50000.pt \
-      --output_dir=./gen_sweep \
-      --gen_t1=1.0,1.05,1.1,1.15,1.2 \
-      --gen_dt=0.01,0.005 \
-      --n_samples=64
-
-  # Single config
+  # Heun integrator with sweep
   python generate_from_checkpoint.py \
       --ckpt=path/to/checkpoint.pt \
-      --gen_t1=1.1 --gen_dt=0.005 --use_ema
+      --integrator=heun \
+      --gen_t1_sweep=1.0,1.1 --gen_dt_sweep=0.01,0.005
+
+  # Convergence-based (EqM) with Heun
+  python generate_from_checkpoint.py \
+      --ckpt=path/to/checkpoint.pt \
+      --integrator=heun --gen_converge_threshold=1.0 --use_ema
 """
 
 import os
@@ -45,20 +48,39 @@ FLAGS = flags.FLAGS
 # Generation-specific flags (supplements shared config flags)
 flags.DEFINE_string("ckpt", "", "Path to checkpoint file (required)")
 flags.DEFINE_string("gen_output_dir", "", "Output directory (default: same as checkpoint's training run folder)")
-flags.DEFINE_string("gen_t1_sweep", "1.0", "Comma-separated list of integration endpoints (e.g. '1.0,1.5,2.0')")
-flags.DEFINE_string("gen_dt_sweep", "0.01", "Comma-separated list of dt values (e.g. '0.01,0.005')")
+flags.DEFINE_string("gen_t1_sweep", "1.0",
+                    "Comma-separated integration endpoints (e.g. '1.0,1.5,2.0'). "
+                    "Ignored when gen_converge_threshold > 0 (convergence finds its own endpoint).")
+flags.DEFINE_string("gen_dt_sweep", "0.01",
+                    "Comma-separated dt values (e.g. '0.01,0.005'). Used in both fixed-t1 and convergence modes.")
 flags.DEFINE_integer("n_samples", 64, "Number of samples to generate per config")
+flags.DEFINE_string("integrator", "heun",
+                    "ODE integrator: 'euler' (1st order, 1 eval/step) or "
+                    "'heun' (2nd order, 2 evals/step, more accurate). Default: heun.")
 flags.DEFINE_bool("use_ema", False, "Also generate with EMA model weights")
 flags.DEFINE_bool("use_normal", True, "Use non-EMA model weights (default)")
 
 # Import models
 from network_cnn import EBCNNModelWrapper
 from network_transformer_vit import EBViTModelWrapper
+from network_pcn import PCNVelocityWrapper
 
 
-def sde_euler_maruyama_gen(model, x0, t0, t1, dt=0.01):
+def _step(model, x, t_val, dt, integrator):
+    """Single integration step: Euler or Heun."""
+    v1 = model(t_val, x)
+    if integrator == "heun":
+        x_pred = x + v1 * dt
+        v2 = model(t_val, x_pred)  # model is time-independent so same t is fine
+        return x + dt * (v1 + v2) / 2, v1
+    else:  # euler
+        return x + v1 * dt, v1
+
+
+def ode_integrate(model, x0, t0, t1, dt=0.01, integrator="euler"):
     """
-    Euler-Maruyama integration from t0 to t1 (deterministic, no noise).
+    ODE integration from t0 to t1 (deterministic, no noise).
+    Supports 'euler' (1st order) and 'heun' (2nd order) integrators.
     Returns only the final sample for efficiency.
     """
     device = x0.device
@@ -67,14 +89,13 @@ def sde_euler_maruyama_gen(model, x0, t0, t1, dt=0.01):
 
     with torch.no_grad():
         for t_val in times:
-            v = model(t_val.unsqueeze(0), x)
-            dt_tensor = torch.tensor(dt, device=device, dtype=x.dtype)
-            x = x + v * dt_tensor
+            x, _ = _step(model, x, t_val.unsqueeze(0), dt, integrator)
 
     return x.clamp(-1, 1)
 
 
-def generate_converged(model, x0, dt=0.01, threshold=0.5, max_steps=5000):
+def generate_converged(model, x0, dt=0.01, threshold=0.5, max_steps=5000,
+                       integrator="euler"):
     """
     Adaptive compute generation: iterate until mean velocity norm < threshold.
     Returns (final_samples, n_steps_used).
@@ -83,8 +104,7 @@ def generate_converged(model, x0, dt=0.01, threshold=0.5, max_steps=5000):
     with torch.no_grad():
         for i in range(max_steps):
             t_val = torch.full((x.size(0),), i * dt, device=x.device)
-            v = model(t_val, x)
-            x = x + v * dt
+            x, v = _step(model, x, t_val, dt, integrator)
             v_norm = v.view(v.size(0), -1).norm(dim=1).mean().item()
             if v_norm < threshold:
                 logging.info(f"  Converged at step {i+1} (v_norm={v_norm:.4f})")
@@ -97,7 +117,19 @@ def build_model(device):
     """Build model from FLAGS (same logic as train script)."""
     img_shape = (1, 28, 28)
 
-    if FLAGS.model_type in ("historical", "vgg5"):
+    if FLAGS.model_type == "pcn":
+        model = PCNVelocityWrapper(
+            gamma=FLAGS.pcn_gamma,
+            K=FLAGS.pcn_K,
+            dt_relax=FLAGS.pcn_dt,
+            async_mode=FLAGS.pcn_async,
+            init_mode=FLAGS.pcn_init_mode,
+            output_scale=FLAGS.output_scale,
+            energy_clamp=FLAGS.energy_clamp if FLAGS.energy_clamp and FLAGS.energy_clamp > 0 else None,
+            pool_type=FLAGS.pool_type,
+            activation=FLAGS.activation,
+        ).to(device)
+    elif FLAGS.model_type in ("historical", "vgg5"):
         version = "vgg5" if FLAGS.model_type == "vgg5" else "historical"
         model = EBCNNModelWrapper(
             output_scale=FLAGS.output_scale,
@@ -143,12 +175,12 @@ def load_checkpoint(model, ckpt_path, device, use_ema=True):
     return model, step
 
 
-def generate_grid(model, img_shape, device, n_samples, t1, dt):
+def generate_grid(model, img_shape, device, n_samples, t1, dt, integrator="euler"):
     """Generate a grid of samples with given parameters."""
     model.eval()
 
     init = torch.randn(n_samples, *img_shape, device=device)
-    final = sde_euler_maruyama_gen(model, init, t0=0.0, t1=t1, dt=dt)
+    final = ode_integrate(model, init, t0=0.0, t1=t1, dt=dt, integrator=integrator)
     final_01 = final / 2.0 + 0.5  # [-1,1] -> [0,1]
 
     return final_01
@@ -175,7 +207,7 @@ def main(_):
     if FLAGS.use_normal:
         weight_variants.append(("normal", False))
     if not weight_variants:
-        weight_variants.append(("ema", True))  # default
+        weight_variants.append(("normal", True))  # default
 
     # Output directory: same as checkpoint's training run folder (or override)
     if FLAGS.gen_output_dir:
@@ -195,27 +227,29 @@ def main(_):
         model, step = load_checkpoint(model, FLAGS.ckpt, device, use_ema=use_ema)
 
         if FLAGS.gen_converge_threshold > 0:
-            # Convergence mode: single run until velocity norm < threshold
-            config_idx += 1
-            logging.info(
-                f"[{config_idx}] {weight_tag} | convergence mode | "
-                f"threshold={FLAGS.gen_converge_threshold} | n={FLAGS.n_samples}"
-            )
-            init = torch.randn(FLAGS.n_samples, *img_shape, device=device)
-            samples, n_steps = generate_converged(
-                model, init, dt=dt_values[0],
-                threshold=FLAGS.gen_converge_threshold
-            )
-            grid = samples / 2.0 + 0.5
-            nrow = int(math.sqrt(FLAGS.n_samples))
-            fname = (
-                f"GEN_{weight_tag}_step{step}"
-                f"_converged_thresh{FLAGS.gen_converge_threshold}"
-                f"_nsteps{n_steps}.png"
-            )
-            fpath = os.path.join(out_dir, fname)
-            save_image(grid, fpath, nrow=nrow)
-            logging.info(f"  Saved {fpath}")
+            # Convergence mode: sweep dt (affects step size / trajectory quality)
+            for dt in dt_values:
+                config_idx += 1
+                logging.info(
+                    f"[{config_idx}] {weight_tag} | convergence mode | "
+                    f"dt={dt} | threshold={FLAGS.gen_converge_threshold} | n={FLAGS.n_samples}"
+                )
+                init = torch.randn(FLAGS.n_samples, *img_shape, device=device)
+                samples, n_steps = generate_converged(
+                    model, init, dt=dt,
+                    threshold=FLAGS.gen_converge_threshold,
+                    integrator=FLAGS.integrator
+                )
+                grid = samples / 2.0 + 0.5
+                nrow = int(math.sqrt(FLAGS.n_samples))
+                fname = (
+                    f"GEN_{weight_tag}_{FLAGS.integrator}_step{step}"
+                    f"_converged_dt{dt}_thresh{FLAGS.gen_converge_threshold}"
+                    f"_nsteps{n_steps}.png"
+                )
+                fpath = os.path.join(out_dir, fname)
+                save_image(grid, fpath, nrow=nrow)
+                logging.info(f"  Saved {fpath}")
         else:
             # Standard sweep over t1 × dt
             for t1 in t1_values:
@@ -231,12 +265,13 @@ def main(_):
 
                     grid = generate_grid(
                         model, img_shape, device,
-                        FLAGS.n_samples, t1, dt
+                        FLAGS.n_samples, t1, dt,
+                        integrator=FLAGS.integrator
                     )
 
                     nrow = int(math.sqrt(FLAGS.n_samples))
                     fname = (
-                        f"GEN_{weight_tag}_step{step}"
+                        f"GEN_{weight_tag}_{FLAGS.integrator}_step{step}"
                         f"_t1{t1:.2f}_dt{dt}_nsteps{n_steps}.png"
                     )
                     fpath = os.path.join(out_dir, fname)

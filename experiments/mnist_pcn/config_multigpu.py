@@ -10,57 +10,43 @@ from absl import flags
 def define_flags():
     FLAGS = flags.FLAGS
 
-    # Model + output
-    flags.DEFINE_string("model", "EBMTime", "Flow matching model type")
-    flags.DEFINE_string("output_dir", "./results_mnist_pcn/", "Directory for results")
-    flags.DEFINE_string("model_type", "unet_vit",
-                        "Model architecture: 'unet_vit' (paper default), 'historical' (feedforward CNN), 'vgg5' (Scellier VGG5)")
-    flags.DEFINE_string("pool_type", "stride_conv",
-                        "VGG5 downsampling: 'stride_conv' (learned, best for gen), 'avgpool', 'maxpool' (Scellier original)")
-
-    # Dataset
+    # Model + dataset + output
+    flags.DEFINE_string("model", "EM_mnist_pcn", "Tag for output directory and checkpoint naming")
     flags.DEFINE_string("dataset", "mnist", "Dataset to train on: 'mnist' (28x28)")
+    flags.DEFINE_string("output_dir", "./results_mnist_pcn/", "Directory for results")
+    flags.DEFINE_bool("debug", False, "Debug mode")
+    flags.DEFINE_string("model_type", "unet_vit",
+                        "Model architecture: 'vgg5' (VGG5 + feedforward backprop), "
+                        "'pcn' (VGG5 + PCN energy relaxation), 'historical' (legacy CNN), "
+                        "'mlp' (pure MLP baseline), 'unet_vit' (UNet + ViT head)")
+    flags.DEFINE_string("pool_type", "avgpool",
+                        "VGG5 downsampling: 'stride_conv' (learned, best for gen), 'avgpool', 'maxpool' (Scellier original)")
+    flags.DEFINE_string("activation", "silu",
+                        "Activation function: 'silu' (smooth ∂V/∂x, recommended) or 'relu' (Scellier original)")
 
-    # Flow/EBM Model parameters (MNIST: downscaled to ~2M params)
-    flags.DEFINE_integer("num_channels", 32, "Base channels (CIFAR-10: 128)")
-    flags.DEFINE_integer("num_res_blocks", 2, "Number of resblocks per stage")
-
+    # Energy Based Model
     flags.DEFINE_float("energy_clamp", None,
                        "Energy clamp (tanh-based). If None, no clamp is applied.")
-
-    # UNet + attention
-    flags.DEFINE_integer("num_heads", 2, "Number of attention heads for UNet's internal self-attention. (CIFAR-10: 4)")
-    # NOTE: num_head_channels is not specified in the paper for MNIST. Keeping
-    # at 64 (same as CIFAR-10) — may need tuning.
-    flags.DEFINE_integer("num_head_channels", 64, "Channels per UNet attention head (unsure for MNIST, CIFAR-10: 64).")
-    flags.DEFINE_float("dropout", 0.1, "Dropout rate in UNet + Transformer layers.")
-    # NOTE: attention_resolutions not specified for MNIST in the paper. Using 14
-    # (= 28 / 2) as the MNIST equivalent of CIFAR-10's 16 (= 32 / 2). Unsure.
-    flags.DEFINE_string("attention_resolutions", "14", "Attention at these resolution(s). (CIFAR-10: '16', unsure for MNIST)")
-
-    # Patch-based ViT parameters (MNIST: simplified head)
-    flags.DEFINE_integer("embed_dim", 128, "Embedding dimension for patch-based ViT head. (CIFAR-10: 384)")
-    flags.DEFINE_integer("transformer_nheads", 2, "Number of heads in the ViT encoder. (CIFAR-10: 4)")
-    flags.DEFINE_integer("transformer_nlayers", 2, "Number of layers (blocks) in the ViT encoder. (CIFAR-10: 8)")
     flags.DEFINE_float("output_scale", 100.0, "Multiplier for final potential output. (CIFAR-10: 1000.0)")
 
-    flags.DEFINE_list(
-        "channel_mult", ["1", "2", "2"],
-        "Channel multipliers for each UNet resolution block. (CIFAR-10: [1,2,2,2])"
-    )
 
-    flags.DEFINE_bool("debug", False, "Debug mode")
-
-    # Training (MNIST: 50k Phase 1 steps, single A100)
+    # Training
     flags.DEFINE_float("lr", 1e-4, "Learning rate (CIFAR-10: 1.2e-3)")
     flags.DEFINE_float("grad_clip", 1.0, "Gradient norm clipping")
+    flags.DEFINE_float("grad_skip_threshold", 0.0,
+                       "Skip weight update if pre-clip grad norm exceeds this value. "
+                       "0 = disabled. Useful for IFT-based PCN where outlier batches "
+                       "produce extreme gradients from second-order HVP terms.")
     flags.DEFINE_integer("total_steps", 50000, "Total training steps for Phase 1 (CIFAR-10: 145k)")
-    # NOTE: warmup not specified in paper for MNIST. Proportionally scaled from
-    # CIFAR-10's 10000/145000 ≈ 7% → 5000/50000 = 10%.
-    flags.DEFINE_integer("warmup", 5000, "Learning rate warmup steps (proportionally scaled from CIFAR-10's 10000)")
+    flags.DEFINE_integer("warmup", 5000, "Learning rate warmup steps (proportionally scaled from CIFAR-10's 10000)")     # NOTE: warmup not specified in paper for MNIST. Proportionally scaled from CIFAR-10's 10000/145000 ≈ 7% → 5000/50000 = 10%.
+    flags.DEFINE_string("lr_decay", "none",
+                        "LR decay after warmup: 'none' (constant after warmup), "
+                        "'cosine' (cosine anneal to 0 over remaining steps)")
     flags.DEFINE_integer("batch_size", 128, "Batch size")
     flags.DEFINE_integer("num_workers", 4, "Dataloader workers")
     flags.DEFINE_float("ema_decay", 0.999, "EMA decay for Phase 1 (CIFAR-10: 0.9999). Phase 2 uses 0.99.")
+    flags.DEFINE_bool("gen_ema", False,
+                      "If True, also generate samples from the EMA model at checkpoint steps.")
 
     # Equilibrium Matching (EqM) objective — alternative to Flow Matching
     flags.DEFINE_string("training_objective", "fm",
@@ -81,11 +67,20 @@ def define_flags():
     # Generation settings
     flags.DEFINE_float("gen_t1", 1.0, "Integration endpoint for sample generation. "
                        "FM uses 1.0; EqM may need 2.0-5.0 to reach equilibrium.")
+    flags.DEFINE_float("gen_dt", 0.01, "Step size for sample generation during training.")
     flags.DEFINE_float("gen_converge_threshold", 1.0,
                        "Run generation until per-sample L2 velocity norm (averaged over "
                        "batch) drops below this. Same norm as EqM paper (threshold=10 on "
                        "ImageNet, scaled to MNIST dims/λ=1). Auto-used for EqM, ignored "
                        "for FM. Set 0 to disable and use gen_t1 instead.")
+
+
+    # Weights & Biases
+    flags.DEFINE_string("wandb_project", "", "W&B project name. Empty = disable wandb logging.")
+    flags.DEFINE_string("wandb_run_name", "", "W&B run name. Empty = auto-generated from flags.")
+
+    # Optional log dir
+    flags.DEFINE_string("my_log_dir", "", "Directory for Abseil logs.")
 
     # EBM + CD (Phase 1 defaults: CD disabled. See file header for Phase 2 CLI overrides.)
     flags.DEFINE_float("epsilon_max", 0.0, "Max step size in Gibbs sampling (Phase 2: 0.1)")
@@ -107,9 +102,44 @@ def define_flags():
         "If True, ignore at_data_mask and use the same temperature schedule for all samples",
     )
 
+    # PCN Energy Dynamics (only used with model_type='pcn')
+    flags.DEFINE_float("pcn_gamma", 0.01,
+                       "γ: linear clamp strength on output node. Small γ → exact Energy "
+                       "Matching correspondence. α = 1/γ is set automatically.")
+    flags.DEFINE_integer("pcn_K", 10,
+                         "Number of relaxation iterations for hidden state convergence. "
+                         "Empirically ≈ number of layers (L=6 for VGG5).")
+    flags.DEFINE_float("pcn_dt", 0.5,
+                       "Step size for hidden state relaxation. dt=1.0 works for ReLU+PGD "
+                       "(Scellier), dt<1 recommended for SiLU+gradient descent.")
+    flags.DEFINE_bool("pcn_async", True,
+                      "Even/odd async layer updates (Scellier App A.1). Critical for "
+                      "trainability — synchronous updates cause oscillations.")
+    flags.DEFINE_string("pcn_init_mode", "feedforward",
+                        "Hidden state initialization: 'feedforward' (recommended, puts h_k "
+                        "near correct basin), 'zeros', or 'random' (for ablation).")
+    flags.DEFINE_integer("pcn_cg_steps", 10,
+                         "CG iterations for IFT backward linear solve. More steps → more "
+                         "accurate parameter gradients (10 is usually sufficient).")
+    flags.DEFINE_bool("pcn_float64", False,
+                      "Run PCN model in float64 for exact gradient correspondence. "
+                      "~8x slower but gives cos≈1.0 for all layers vs feedforward.")
+    flags.DEFINE_bool("pcn_error_param", False,
+                      "Use error-parameterized dynamics (e_k = f_k(h_{k-1}) - h_k) "
+                      "instead of h-parameterized. Better conditioned → float32 + fewer CG steps.")
 
-    # Optional log dir
-    flags.DEFINE_string("my_log_dir", "", "Directory for Abseil logs.")
+    # UNet + ViT flags (only used with model_type='unet_vit')
+    flags.DEFINE_integer("num_channels", 32, "Base channels (CIFAR-10: 128)")
+    flags.DEFINE_integer("num_res_blocks", 2, "Number of resblocks per stage")
+    flags.DEFINE_integer("num_heads", 2, "Number of attention heads")
+    flags.DEFINE_integer("num_head_channels", 64, "Channels per attention head")
+    flags.DEFINE_float("dropout", 0.1, "Dropout rate")
+    flags.DEFINE_string("attention_resolutions", "14", "Attention at these resolutions")
+    flags.DEFINE_integer("embed_dim", 128, "ViT embedding dimension")
+    flags.DEFINE_integer("transformer_nheads", 2, "ViT heads")
+    flags.DEFINE_integer("transformer_nlayers", 2, "ViT layers")
+    flags.DEFINE_list("channel_mult", ["1", "2", "2"], "UNet channel multipliers")
+
 
 
 def parse_channel_mult(FLAGS):

@@ -5,8 +5,9 @@
 #   potential(x, t), velocity(x, t), forward(t, x)
 #
 # Architectures:
-#   - cnn_v2:  3-stage CNN with flattened spatial features → MLP → scalar V(x) (~2.1M params)
-#   - vgg5:    VGG5 from Scellier et al., adapted for energy output (~6.2M params)
+#   - historical:  3-stage CNN with flattened spatial features → MLP → scalar V(x) (~2.1M params)
+#   - vgg5:        VGG5 from Scellier et al., adapted for energy output (~6.2M params)
+#   - mlp:         Pure MLP baseline, no convolutions (~2.4M params default)
 #
 # Uses SiLU activations per the Energy Matching paper (Section D):
 #   "We recommend using SiLU activation functions wherever possible,
@@ -28,19 +29,20 @@ def soft_clamp(x, clamp_val):
 ##############################################################################
 
 class DoubleConv(nn.Module):
-    """Two consecutive conv(3×3) + SiLU."""
-    def __init__(self, in_channels, out_channels):
+    """Two consecutive conv(3×3) + activation."""
+    def __init__(self, in_channels, out_channels, activation="silu"):
         super().__init__()
         self.conv1 = nn.Conv2d(
-            in_channels, out_channels, kernel_size=3, padding=1, bias=True
+            in_channels, out_channels, kernel_size=3, padding=1, bias=True # Classic padding = (kernel_size - 1)/2 to preserve 28x28 size
         )
         self.conv2 = nn.Conv2d(
             out_channels, out_channels, kernel_size=3, padding=1, bias=True
         )
+        self.act = nn.SiLU() if activation == "silu" else nn.ReLU()
 
     def forward(self, x):
-        x = F.silu(self.conv1(x))
-        x = F.silu(self.conv2(x))
+        x = self.act(self.conv1(x))
+        x = self.act(self.conv2(x))
         return x
 
 
@@ -49,7 +51,7 @@ class Downsample(nn.Module):
     def __init__(self, channels):
         super().__init__()
         self.conv = nn.Conv2d(
-            channels, channels, kernel_size=4, stride=2, padding=1, bias=True
+            channels, channels, kernel_size=4, stride=2, padding=1, bias=True # Kernel size 3 might be ore conventional now, but this halves spatial dimension is the point
         )
 
     def forward(self, x):
@@ -57,10 +59,10 @@ class Downsample(nn.Module):
 
 
 ##############################################################################
-# CNN v2: 3 stages + flattened spatial features (~2.1M params)
+# Historical: 3 stages + flattened spatial features (~2.1M params)
 ##############################################################################
 
-class Network_2M_v2_MNIST28x28(nn.Module):
+class HistoricalCNNEnergy(nn.Module):
     """
     CNN energy model for MNIST (~2.1M params).
     Keeps spatial features (no global avg pool) — important for sharp velocity fields.
@@ -69,18 +71,20 @@ class Network_2M_v2_MNIST28x28(nn.Module):
     - 3 stages: (1->64)->down->(64->128)->down->(128->128) at 7x7
     - Flatten 128*7*7=6272 -> 192 -> 1
     """
-    def __init__(self):
+    def __init__(self, activation="silu"):
         super().__init__()
+        self.act = nn.SiLU() if activation == "silu" else nn.ReLU()
+
         # Stage 1: (1 -> 64), 28x28
-        self.doubleconv1 = DoubleConv(1, 64)
+        self.doubleconv1 = DoubleConv(1, 64, activation=activation)
         self.down1 = Downsample(64)        # 28->14
 
         # Stage 2: (64 -> 128), 14x14
-        self.doubleconv2 = DoubleConv(64, 128)
+        self.doubleconv2 = DoubleConv(64, 128, activation=activation)
         self.down2 = Downsample(128)       # 14->7
 
-        # Stage 3: (128 -> 128), 7x7 (new!)
-        self.doubleconv3 = DoubleConv(128, 128)
+        # Stage 3: (128 -> 128), 7x7
+        self.doubleconv3 = DoubleConv(128, 128, activation=activation)
 
         # Flatten spatial features: 128 * 7 * 7 = 6272
         # MLP: 6272 -> 192 -> 1
@@ -99,7 +103,7 @@ class Network_2M_v2_MNIST28x28(nn.Module):
         # Flatten — keep all spatial info
         x = x.view(x.size(0), -1)  # (B, 6272)
 
-        out = F.silu(self.fc0(x))
+        out = self.act(self.fc0(x))
         energy = self.out(out)      # (B,1)
         return energy
 
@@ -108,33 +112,46 @@ class Network_2M_v2_MNIST28x28(nn.Module):
 # VGG5: Scellier et al. architecture, adapted for energy output (~6.2M params)
 ##############################################################################
 
-class VGG5Energy_MNIST28x28(nn.Module):
+class VGG5Energy(nn.Module):
     """
     VGG5 from Scellier et al. (Table 5) adapted for scalar energy output.
     Modifications from the original:
       - 1 input channel (MNIST)
-      - SiLU activations (smoother ∂V/∂x than ReLU) # TODO ablate against ReLU
+      - SiLU activations (smoother ∂V/∂x than ReLU)
       - Scalar output (energy) instead of class logits
       - Configurable downsampling: maxpool / avgpool / stride_conv
 
     Architecture: 5 conv layers (3×3, padding=1) with 4 downsampling ops.
     Spatial progression: 28 → 28 → [down] 14 → 14 → [down] 7 → [down] 3 → [down] 1
-    ~6.2M params (slightly more with stride_conv due to learned downsample kernels).
+
+    Parameter counts vary significantly by pool_type:
+      - maxpool / avgpool:  ~6.2M params (no learnable downsampling)
+      - stride_conv:       ~19.8M params (4×4 learned kernels at 256–512 ch)
 
     pool_type options:
       - "maxpool":    MaxPool 2×2 — matches Scellier for EP comparability.
-                      Sparse gradients (1/4 pixels per window).
-      - "avgpool":    AvgPool 2×2 — dense gradients, all pixels contribute equally.
+                      Sparse gradients (1/4 pixels per window). Bad for generation.
+      - "avgpool":    AvgPool 2×2 — dense uniform gradients, all pixels contribute.
+                      Best for generation (smooth ∂V/∂x). Recommended default.
       - "stride_conv": Learned stride-2 conv (4×4 kernel) — dense gradients,
-                      learnable weights. Best for generation.
+                      learnable weights, but ~3× the params of avgpool/maxpool.
     """
-    def __init__(self, pool_type="stride_conv"):
+    def __init__(self, pool_type="avgpool", activation="silu"):
         super().__init__()
+
+        def act():
+            """Return the activation module."""
+            if activation == "silu":
+                return nn.SiLU()
+            elif activation == "relu":
+                return nn.ReLU()
+            else:
+                raise ValueError(f"Unknown activation: {activation}. Use 'silu' or 'relu'.")
 
         def down(channels):
             """Return the downsampling module for the given channel count."""
             if pool_type == "maxpool":
-                return nn.MaxPool2d(2, 2)
+                return nn.MaxPool2d(2, 2) # i.e. kernel_size=2, stride=2, i.e. non-overlapping patches to half spatial dimension
             elif pool_type == "avgpool":
                 return nn.AvgPool2d(2, 2)
             elif pool_type == "stride_conv":
@@ -145,24 +162,24 @@ class VGG5Energy_MNIST28x28(nn.Module):
         self.features = nn.Sequential(
             # Block 1: 28×28
             nn.Conv2d(1, 128, kernel_size=3, padding=1),
-            nn.SiLU(),
+            act(),
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.SiLU(),
+            act(),
             down(256),                # → 14×14
 
             # Block 2: 14×14
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
-            nn.SiLU(),
+            act(),
             down(512),                # → 7×7
 
             # Block 3: 7×7
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
-            nn.SiLU(),
+            act(),
             down(512),                # → 3×3
 
             # Block 4: 3×3
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
-            nn.SiLU(),
+            act(),
             down(512),                # → 1×1
         )
         self.head = nn.Linear(512, 1)
@@ -174,36 +191,77 @@ class VGG5Energy_MNIST28x28(nn.Module):
 
 
 ##############################################################################
+# MLP: Pure feedforward baseline, no convolutions (~2.4M params default)
+##############################################################################
+
+class MLPEnergy(nn.Module):
+    """
+    Pure MLP energy model for MNIST (no convolutions).
+    Flattens 1×28×28 = 784 inputs and maps through hidden layers to scalar.
+
+    Default hidden sizes [1024, 1024, 512] give ~2.4M params — comparable to
+    the historical CNN. SiLU activations for smooth ∂V/∂x gradients.
+
+    This serves as a "how bad can it get without spatial inductive bias?"
+    baseline for the generation quality ablation.
+    """
+    def __init__(self, hidden_sizes=None, activation="silu"):
+        super().__init__()
+        if hidden_sizes is None:
+            hidden_sizes = [1024, 1024, 512]
+
+        act_cls = nn.SiLU if activation == "silu" else nn.ReLU
+
+        
+        layers = []
+        in_dim = 784  # 1 * 28 * 28
+        for h in hidden_sizes:
+            layers.append(nn.Linear(in_dim, h))
+            layers.append(act_cls())
+            in_dim = h
+        layers.append(nn.Linear(in_dim, 1))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = x.view(x.size(0), -1)  # (B, 784)
+        return self.net(x)           # (B, 1)
+
+
+##############################################################################
 # Wrapper with standard EBM interface
 ##############################################################################
 
 class EBCNNModelWrapper(nn.Module):
     """
-    Wrapper around CNN architectures providing the same interface as
+    Wrapper around CNN/MLP architectures providing the same interface as
     EBViTModelWrapper: potential(x, t), velocity(x, t), forward(t, x).
 
-    This allows any CNN to be used interchangeably with the UNet+ViT in
-    the training and sampling scripts.
+    This allows any architecture to be used interchangeably with the UNet+ViT
+    in the training and sampling scripts.
 
     Supported versions:
-      - "historical": Network_2M_v2_MNIST28x28 (~2.1M params)
-      - "vgg5":       VGG5Energy_MNIST28x28 (~6.2M params)
+      - "historical": HistoricalCNNEnergy (~2.1M params)
+      - "vgg5":       VGG5Energy (~6.2M params)
+      - "mlp":        MLPEnergy (~2.4M params)
     """
 
-    def __init__(self, output_scale=100.0, energy_clamp=None, version="historical", pool_type="stride_conv"):
+    def __init__(self, output_scale=100.0, energy_clamp=None, version="historical", pool_type="avgpool", activation="silu"):
         super().__init__()
         if version == "vgg5":
-            self.cnn = VGG5Energy_MNIST28x28(pool_type=pool_type)
+            self.net = VGG5Energy(pool_type=pool_type, activation=activation)
         elif version == "historical":
-            self.cnn = Network_2M_v2_MNIST28x28()
+            self.net = HistoricalCNNEnergy(activation=activation)
+        elif version == "mlp":
+            self.net = MLPEnergy(activation=activation)
         else:
-            raise ValueError(f"Unknown CNN version: {version}. Use 'historical' or 'vgg5'.")
+            raise ValueError(f"Unknown CNN version: {version}. Use 'historical', 'vgg5', or 'mlp'.")
+
         self.output_scale = output_scale
         self.energy_clamp = energy_clamp
 
     def potential(self, x, t):
         """Computes scalar potential V(x) => shape (B,). Time is ignored."""
-        V = self.cnn(x).view(-1)  # (B,)
+        V = self.net(x).view(-1)  # (B,)
         V = V * self.output_scale
         if self.energy_clamp is not None and self.energy_clamp > 0:
             V = soft_clamp(V, self.energy_clamp)
