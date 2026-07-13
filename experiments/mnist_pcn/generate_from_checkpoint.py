@@ -120,7 +120,7 @@ def build_model(device):
     if FLAGS.model_type == "pcn":
         model = PCNVelocityWrapper(
             gamma=FLAGS.pcn_gamma,
-            K=FLAGS.pcn_K,
+            T_free=FLAGS.T_free,
             dt_relax=FLAGS.pcn_dt,
             async_mode=FLAGS.pcn_async,
             init_mode=FLAGS.pcn_init_mode,

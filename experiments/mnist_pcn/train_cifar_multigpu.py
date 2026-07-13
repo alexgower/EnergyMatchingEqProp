@@ -166,7 +166,7 @@ def forward_all(model,
         cd_loss = cd_val_scaled
 
     total_loss = flow_loss + cd_loss
-    return total_loss, flow_loss, cd_loss, pos_energy, neg_energy, vt_mag, ut_mag
+    return total_loss, flow_loss, cd_loss, pos_energy, neg_energy, vt_mag, ut_mag, ut
 
 
 ##############################################################################
@@ -290,7 +290,7 @@ def train_loop(rank, world_size, argv):
         from network_pcn import PCNVelocityWrapper
         net_model = PCNVelocityWrapper(
             gamma=FLAGS.pcn_gamma,
-            K=FLAGS.pcn_K,
+            T_free=FLAGS.T_free,
             dt_relax=FLAGS.pcn_dt,
             async_mode=FLAGS.pcn_async,
             init_mode=FLAGS.pcn_init_mode,
@@ -300,12 +300,24 @@ def train_loop(rank, world_size, argv):
             pool_type=FLAGS.pool_type,
             activation=FLAGS.activation,
             error_param=FLAGS.pcn_error_param,
+            # EP parameters (Stage 3)
+            param_grad_mode=FLAGS.param_grad_mode,
+            lambda_spring=FLAGS.lambda_spring,
+            beta=FLAGS.beta,
+            T_nudge=FLAGS.T_nudge,
+            thirdphase=FLAGS.thirdphase,
+            K_h=FLAGS.K_h,
         ).to(device)
         if FLAGS.pcn_float64:
             net_model = net_model.to(torch.float64)
             logging.info("[PCN] Using float64 for exact gradient correspondence")
         if FLAGS.pcn_error_param:
             logging.info("[PCN] Using error-parameterized dynamics (H ≈ I)")
+        logging.info(f"[PCN] K_h={FLAGS.K_h} (h-equilibration steps)")
+        if FLAGS.param_grad_mode == "ep":
+            logging.info(f"[PCN] EP mode: λ_spring={FLAGS.lambda_spring}, β={FLAGS.beta}, "
+                         f"T_free={FLAGS.T_free}, T_nudge={FLAGS.T_nudge}, "
+                         f"thirdphase={FLAGS.thirdphase}")
     elif FLAGS.model_type in ("historical", "vgg5", "mlp"):
         version = FLAGS.model_type
         net_model = EBCNNModelWrapper(
@@ -462,10 +474,12 @@ def train_loop(rank, world_size, argv):
                 else:
                     is_save_step = (FLAGS.save_step > 0 and step % FLAGS.save_step == 0)
 
-            if step == start_step:
-                print(f"[DEBUG] Step {step} | Calling forward pass...", flush=True)
+            is_ep_mode = (FLAGS.model_type == "pcn" and FLAGS.param_grad_mode == "ep")
 
-            total_loss, flow_loss, cd_loss, pos_energy, neg_energy, vt_mag, ut_mag = forward_all(
+            # Both EP and IFT use forward_all for velocity, flow loss, CD, EqM.
+            # In EP mode, velocity() returns detached spring displacement (no graph).
+            # In IFT mode, velocity() returns grad-tracked output (create_graph=True).
+            total_loss, flow_loss, cd_loss, pos_energy, neg_energy, vt_mag, ut_mag, ut = forward_all(
                 model=net_model,
                 flow_matcher=flow_matcher,
                 x_real_flow=x_real_flow,
@@ -478,7 +492,15 @@ def train_loop(rank, world_size, argv):
                 epsilon_max=FLAGS.epsilon_max,
                 time_cutoff=FLAGS.time_cutoff
             )
-            total_loss.backward()
+
+            if is_ep_mode:
+                # EP: parameter gradients via nudge phases + energy difference.
+                # total_loss has no grad (velocity was detached), so we skip .backward()
+                # and instead compute EP gradients from the cached free-phase equilibrium.
+                ep_diag = raw_model.compute_ep_gradients(ut)
+            else:
+                # IFT / feedforward: standard backprop through total_loss
+                total_loss.backward()
 
             if step == start_step:
                 print(f"[DEBUG] Step {step} | backward() complete! Updating weights...", flush=True)
@@ -540,6 +562,17 @@ def train_loop(rank, world_size, argv):
                     log_pcn_step_diagnostics(
                         raw_model, step, log_dict,
                         data_batch=x_real_flow, v_cos_every=500,
+                    )
+
+                # EP-specific diagnostics
+                if is_ep_mode:
+                    log_dict["ep_loss"] = ep_diag["ep_loss"]
+                    log_dict["nudge_disp"] = ep_diag["nudge_disp"]
+                    log_dict["free_x_disp"] = ep_diag["free_x_disp"]
+                    logging.info(
+                        f"  [EP] ep_loss={ep_diag['ep_loss']:.6f}, "
+                        f"nudge_disp={ep_diag['nudge_disp']:.6f}, "
+                        f"free_x_disp={ep_diag['free_x_disp']:.6f}"
                     )
 
                 if wandb is not None and wandb.run is not None:

@@ -106,9 +106,11 @@ def define_flags():
     flags.DEFINE_float("pcn_gamma", 0.01,
                        "γ: linear clamp strength on output node. Small γ → exact Energy "
                        "Matching correspondence. α = 1/γ is set automatically.")
-    flags.DEFINE_integer("pcn_K", 10,
-                         "Number of relaxation iterations for hidden state convergence. "
-                         "Empirically ≈ number of layers (L=6 for VGG5).")
+    flags.DEFINE_integer("K_h", 2,
+                        "Hidden state equilibration steps. Used in both IFT (h-relaxation "
+                        "with x fixed) and EP (inner h-steps per x-step, τ_h << τ_x). "
+                        "K_h=2 sufficient for error-parameterized PCN (H≈I → fast convergence). "
+                        "Increase for h-parameterized mode or harder problems.")
     flags.DEFINE_float("pcn_dt", 0.5,
                        "Step size for hidden state relaxation. dt=1.0 works for ReLU+PGD "
                        "(Scellier), dt<1 recommended for SiLU+gradient descent.")
@@ -127,6 +129,31 @@ def define_flags():
     flags.DEFINE_bool("pcn_error_param", False,
                       "Use error-parameterized dynamics (e_k = f_k(h_{k-1}) - h_k) "
                       "instead of h-parameterized. Better conditioned → float32 + fewer CG steps.")
+
+    # --- Stage 3: EP (Equilibrium Propagation) parameter gradients ---
+    flags.DEFINE_string("param_grad_mode", "ift",
+                        "Parameter gradient method: 'ift' (Stage 2, IFT + CG) or "
+                        "'ep' (Stage 3, spring-clamped EP). EP is first-order and "
+                        "fully local — no HVPs, no create_graph.")
+    flags.DEFINE_float("lambda_spring", 1.0,
+                       "Spring constant λ for EP x-clamping. Larger = stiffer spring, "
+                       "faster x convergence. v = output_scale·α·λ·(x*-x_t) at equilibrium.")
+    flags.DEFINE_float("beta", 0.1,
+                       "EP nudge strength β (velocity-space, λ-independent). Internally "
+                       "scaled to β_eff = β / vel_scale² in compute_ep_gradients() so "
+                       "the user tunes one value regardless of λ or output_scale. "
+                       "Larger = faster nudge convergence but O(β) bias; "
+                       "smaller = more accurate but float32 noise in (E_β-E*)/β.")
+    flags.DEFINE_integer("T_nudge", 4,
+                         "Nudge phase relaxation steps. Can be fewer than K (= T_free free phase) "
+                         "since starting from an already-converged equilibrium.")
+    flags.DEFINE_bool("thirdphase", True,
+                      "Three-phase EP: use both +β and -β nudge phases for O(β²) gradient "
+                      "accuracy. 1.5× cost of two-phase but significantly less bias.")
+    flags.DEFINE_integer("T_free", 10,
+                        "Number of free-phase x-relaxation steps in EP mode. In IFT mode "
+                        "this is unused (h-relaxation uses K_h directly).")
+
 
     # UNet + ViT flags (only used with model_type='unet_vit')
     flags.DEFINE_integer("num_channels", 32, "Base channels (CIFAR-10: 128)")

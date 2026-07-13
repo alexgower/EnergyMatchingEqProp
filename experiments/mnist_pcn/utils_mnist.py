@@ -84,6 +84,11 @@ def log_pcn_step_diagnostics(model, step, log_dict, data_batch=None,
         pcn_msg_parts.append(f"max|e|={diag['max_error']:.4f}")
         pcn_msg_parts.append(f"max|dE/de|={diag['max_eq_residual']:.4f}")
 
+        # max|∂E/∂h| — directly validates the adiabatic assumption
+        if "max_eq_residual_h" in diag:
+            log_dict["pcn/max_eq_residual_h"] = diag["max_eq_residual_h"]
+            pcn_msg_parts.append(f"max|dE/dh|={diag['max_eq_residual_h']:.4f}")
+
         # Per-layer error norms: e_k* ∝ γ · ∏ J_j — monitors Jacobian health
         # Growth from L→0 signals exploding Jacobians, shrinkage is healthy.
         if "per_layer_error_norm" in diag:

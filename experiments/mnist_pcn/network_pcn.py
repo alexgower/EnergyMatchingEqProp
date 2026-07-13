@@ -587,7 +587,7 @@ class PCNEnergyModel(nn.Module):
                 norms.append(norm)
         return norms
 
-    def relax_hiddens(self, x, gamma, K, dt, async_mode=True,
+    def relax_hiddens(self, x, gamma, K_h, dt, async_mode=True,
                       init_mode="feedforward"):
         """
         Relax hidden states to equilibrium via gradient descent on E_int.
@@ -602,7 +602,7 @@ class PCNEnergyModel(nn.Module):
         Args:
             x: input images (B, 1, 28, 28).
             gamma: linear clamp strength.
-            K: number of relaxation iterations.
+            T_free: number of relaxation iterations.
             dt: step size for gradient descent.
             async_mode: if True, even/odd async updates.
             init_mode: "feedforward" (recommended), "zeros", or "random".
@@ -635,7 +635,7 @@ class PCNEnergyModel(nn.Module):
             )
 
         # ---- Relaxation loop (fully detached) ----
-        for step in range(K):
+        for step in range(K_h):
             if async_mode:
                 for parity in [0, 1]:
                     for k in range(self.L):
@@ -706,7 +706,7 @@ class PCNEnergyModel(nn.Module):
     # Error-parameterized relaxation
     # ------------------------------------------------------------------
 
-    def relax_errors(self, x, gamma, K, dt, async_mode=True,
+    def relax_errors(self, x, gamma, K_h, dt, async_mode=True,
                      init_mode="feedforward"):
         """
         Relax prediction errors to equilibrium via gradient descent on E.
@@ -719,7 +719,7 @@ class PCNEnergyModel(nn.Module):
         Args:
             x: input images (B, 1, 28, 28).
             gamma: linear clamp strength.
-            K: number of relaxation iterations.
+            T_free: number of relaxation iterations.
             dt: step size for gradient descent.
             async_mode: if True, even/odd async updates.
             init_mode: "feedforward" (e_k=0), "zeros" (h_k=0), or "random".
@@ -761,7 +761,7 @@ class PCNEnergyModel(nn.Module):
             )
 
         # ---- Relaxation loop (fully detached) ----
-        for step in range(K):
+        for step in range(K_h):
             if async_mode:
                 for parity in [0, 1]:
                     for k in range(self.L):
@@ -837,10 +837,406 @@ class PCNEnergyModel(nn.Module):
             grad = torch.autograd.grad(E, e_k)[0]
         return (e_k - dt * grad).detach()
 
+    # ------------------------------------------------------------------
+    # Spring-clamped EP: free phase, nudge phase, gradient step
+    # ------------------------------------------------------------------
+    #
+    # In spring-clamped EP, x becomes a dynamic variable with a spring
+    # pulling it back to the input x_t:
+    #   E_spring = E_int(x, h, γ) + (λ/2)||x - x_t||²
+    #
+    # At equilibrium, the spring force balances the energy gradient:
+    #   λ(x* - x_t) = -∂E_int/∂x
+    # so the velocity can be read off from the displacement:
+    #   v = output_scale · (1/γ) · λ · (x* - x_t)
+    # This matches the IFT velocity: v = -output_scale · (1/γ) · ∂E_int/∂x
+    #
+    # For EP parameter gradients, a nudge phase adds a loss that pushes
+    # x toward a target displacement:
+    #   E_nudge = E_spring + β · L_nudge(x)
+    # and the gradient is estimated as (E_β - E*) / β.
 
-##############################################################################
-# Velocity Wrapper: drop-in replacement for EBCNNModelWrapper
-##############################################################################
+
+    def relax_spring_free(self, x_t, gamma, T_free, dt, lambda_spring,
+                          K_h=1, async_mode=True, init_mode="feedforward"):
+        """
+        Free phase for spring-clamped EP: relax both x and h to equilibrium.
+
+        Energy minimised: E_spring = E_int(x, h, γ) + (λ/2)||x - x_t||²
+
+        x starts at x_t and is pulled back by the spring. Hidden states
+        start from feedforward init (or zeros/random) and relax as usual.
+
+        Args:
+            x_t: input images (B, 1, 28, 28) — the spring anchor.
+            gamma: γ, linear clamp strength.
+            T_free: number of relaxation iterations.
+            dt: step size for gradient descent.
+            lambda_spring: spring constant λ.
+            async_mode: even/odd async updates for h.
+            init_mode: "feedforward", "zeros", or "random" for h init.
+
+        Returns:
+            x_star: equilibrium x (B, 1, 28, 28), detached.
+            h_star: list of L equilibrium hidden states, detached.
+            diagnostics: dict with energy trajectory etc.
+        """
+        x_detached = x_t.detach()
+        x = x_detached.clone()  # x starts at x_t
+
+        # Initialise hidden states
+        if init_mode == "feedforward":
+            hiddens = self.feedforward_init(x_detached)
+        elif init_mode == "zeros":
+            hiddens = self._make_zero_hiddens(x_detached)
+        else:
+            hiddens = self._make_random_hiddens(x_detached)
+        hiddens = [h.detach() for h in hiddens]
+
+        diagnostics = {"energy": [], "x_disp": []}
+
+        for step in range(T_free):
+            # Inner loop: equilibrate h at current x (τ_h << τ_x)
+            for _ in range(K_h):
+                if async_mode:
+                    even_indices = list(range(0, self.L, 2))
+                    odd_indices = list(range(1, self.L, 2))
+                    for k in even_indices:
+                        hiddens[k] = self._update_layer_gd(x, hiddens, k, gamma, dt)
+                    for k in odd_indices:
+                        hiddens[k] = self._update_layer_gd(x, hiddens, k, gamma, dt)
+                else:
+                    new_hiddens = [
+                        self._update_layer_gd(x, hiddens, k, gamma, dt)
+                        for k in range(self.L)
+                    ]
+                    hiddens = new_hiddens
+
+            # Outer step: update x via gradient descent on E_spring
+            with torch.enable_grad():
+                x_grad = x.detach().requires_grad_(True)
+                E = self.compute_energy(x_grad, hiddens, gamma)
+                spring = (lambda_spring / 2.0) * (x_grad - x_detached).pow(2).sum()
+                E_spring = E + spring
+                grad_x = torch.autograd.grad(E_spring, x_grad)[0]
+            x = (x_grad - dt * grad_x).detach()
+
+            # Diagnostics
+            with torch.no_grad():
+                diagnostics["energy"].append(
+                    self.compute_energy(x, hiddens, gamma).item()
+                )
+                diagnostics["x_disp"].append(
+                    (x - x_detached).pow(2).mean().sqrt().item()
+                )
+
+        # ---- Equilibrium quality diagnostics (matching relax_hiddens) ----
+        with torch.no_grad():
+            diagnostics["residual_norms"] = self.compute_residuals(x, hiddens)
+
+        return x, hiddens, diagnostics
+
+
+    def relax_spring_nudged(self, x_t, x_star, h_star, u_target,
+                            beta, T_nudge, gamma, dt, lambda_spring,
+                            output_scale, alpha,
+                            K_h=1, async_mode=True):
+        """
+        Nudge phase for spring-clamped EP: re-relax with a velocity nudge loss.
+
+        Energy minimised:
+            E_nudge = E_int(x, h, γ) + (λ/2)||x - x_t||²
+                    + β · (output_scale·α·λ)² / 2 · ||x - target_x||²
+
+        where target_x = x_t + u_target / (output_scale · α · λ),
+        chosen so that at nudge equilibrium the velocity is pushed toward u_target.
+
+        Starts from the free-phase equilibrium (x*, h*).
+
+        Args:
+            x_t: input images — spring anchor.
+            x_star: free-phase equilibrium x (detached).
+            h_star: free-phase equilibrium hiddens (list, detached).
+            u_target: target velocity u_t from flow matching (B, 1, 28, 28).
+            beta: nudge strength β.
+            T_nudge: number of nudge relaxation steps.
+            gamma: γ, linear clamp strength.
+            dt: step size.
+            lambda_spring: spring constant λ.
+            output_scale: velocity scale factor.
+            alpha: 1/γ factor.
+            async_mode: even/odd async updates.
+
+        Returns:
+            x_beta: nudge equilibrium x (detached).
+            h_beta: nudge equilibrium hiddens (list, detached).
+        """
+        x_t_det = x_t.detach()
+        vel_scale = output_scale * alpha * lambda_spring
+        target_x = (x_t_det + u_target.detach() / vel_scale).detach()
+        nudge_coeff = beta * vel_scale ** 2 / 2.0
+
+        x = x_star.detach().clone()
+        hiddens = [h.detach().clone() for h in h_star]
+
+        for step in range(T_nudge):
+            # Inner loop: equilibrate h at current x (τ_h << τ_x)
+            for _ in range(K_h):
+                if async_mode:
+                    even_indices = list(range(0, self.L, 2))
+                    odd_indices = list(range(1, self.L, 2))
+                    for k in even_indices:
+                        hiddens[k] = self._update_layer_gd(x, hiddens, k, gamma, dt)
+                    for k in odd_indices:
+                        hiddens[k] = self._update_layer_gd(x, hiddens, k, gamma, dt)
+                else:
+                    new_hiddens = [
+                        self._update_layer_gd(x, hiddens, k, gamma, dt)
+                        for k in range(self.L)
+                    ]
+                    hiddens = new_hiddens
+
+            # Outer step: update x with spring + nudge
+            with torch.enable_grad():
+                x_grad = x.detach().requires_grad_(True)
+                E = self.compute_energy(x_grad, hiddens, gamma)
+                spring = (lambda_spring / 2.0) * (x_grad - x_t_det).pow(2).sum()
+                nudge = nudge_coeff * (x_grad - target_x).pow(2).sum()
+                E_nudged = E + spring + nudge
+                grad_x = torch.autograd.grad(E_nudged, x_grad)[0]
+            x = (x_grad - dt * grad_x).detach()
+
+        return x, hiddens
+
+
+    def relax_spring_free_errors(self, x_t, gamma, T_free, dt, lambda_spring,
+                                 K_h=1, async_mode=True, init_mode="feedforward"):
+        """
+        Free phase for spring-clamped EP in error parameterization.
+
+        Same as relax_spring_free but tracks errors e_k = f_k(h_{k-1}) - h_k
+        instead of hidden states. Convergence is faster because H ≈ I.
+
+        Returns:
+            x_star: equilibrium x (detached).
+            errors: list of L equilibrium error tensors (detached).
+            diagnostics: dict.
+        """
+        x_detached = x_t.detach()
+        x = x_detached.clone()
+
+        # Initialise errors (must correspond to actual h values, not just shapes)
+        if init_mode == "feedforward":
+            # Feedforward init: h_k = f_k(h_{k-1}) exactly → e_k = 0
+            errors = [torch.zeros_like(h) for h in self.feedforward_init(x_detached)]
+        elif init_mode == "zeros":
+            # All h_k = 0 → compute corresponding errors e_k = f_k(h_{k-1}) - 0
+            zero_hiddens = self._make_zero_hiddens(x_detached)
+            errors = _hiddens_to_errors(zero_hiddens, self, x_detached)
+            errors = [e.detach() for e in errors]
+        elif init_mode == "random":
+            # Random h_k → compute corresponding errors e_k = f_k(h_{k-1}) - h_k
+            rand_hiddens = self._make_random_hiddens(x_detached)
+            errors = _hiddens_to_errors(rand_hiddens, self, x_detached)
+            errors = [e.detach() for e in errors]
+        else:
+            raise ValueError(f"Unknown pcn_init_mode: {init_mode}")
+
+        diagnostics = {"energy": [], "x_disp": []}
+
+        for step in range(T_free):
+            # Inner loop: equilibrate errors at current x (τ_h << τ_x)
+            for _ in range(K_h):
+                if async_mode:
+                    even_indices = list(range(0, self.L, 2))
+                    odd_indices = list(range(1, self.L, 2))
+                    for k in even_indices:
+                        errors[k] = self._update_error_gd(x, errors, k, gamma, dt)
+                    for k in odd_indices:
+                        errors[k] = self._update_error_gd(x, errors, k, gamma, dt)
+                else:
+                    new_errors = [
+                        self._update_error_gd(x, errors, k, gamma, dt)
+                        for k in range(self.L)
+                    ]
+                    errors = new_errors
+
+            # Outer step: update x via gradient descent on E_spring.
+            # Modelling choice: reconstruct h from errors with x DETACHED,
+            # computing ∂E/∂x|_{h fixed} (envelope theorem / adiabatic
+            # assumption). This matches the h-param x-update exactly.
+            # Alternative: pass x_grad through _errors_to_hiddens to get the
+            # total derivative dE/dx|_{e fixed}, which is the true gradient
+            # when errors are held constant but differs from h-param when
+            # ∂E/∂h ≠ 0 (i.e. h not fully converged).
+            hiddens_fixed = _errors_to_hiddens(errors, self, x.detach())
+            hiddens_fixed = [h.detach() for h in hiddens_fixed]
+            with torch.enable_grad():
+                x_grad = x.detach().requires_grad_(True)
+                E = self.compute_energy(x_grad, hiddens_fixed, gamma)
+                spring = (lambda_spring / 2.0) * (x_grad - x_detached).pow(2).sum()
+                E_spring = E + spring
+                grad_x = torch.autograd.grad(E_spring, x_grad)[0]
+            x = (x_grad - dt * grad_x).detach()
+
+            # Diagnostics
+            with torch.no_grad():
+                hiddens_diag = _errors_to_hiddens(errors, self, x)
+                diagnostics["energy"].append(
+                    self.compute_energy(x, hiddens_diag, gamma).item()
+                )
+                diagnostics["x_disp"].append(
+                    (x - x_detached).pow(2).mean().sqrt().item()
+                )
+
+        # ---- Equilibrium quality diagnostics (matching relax_errors) ----
+        with torch.no_grad():
+            diagnostics["max_error"] = max(e.abs().max().item() for e in errors)
+            diagnostics["per_layer_error_norm"] = [
+                e.norm().item() / (e.numel() ** 0.5) for e in errors
+            ]
+
+        # Equilibrium residual in e-space: max|∂E/∂e|
+        with torch.enable_grad():
+            e_check = [e.detach().requires_grad_(True) for e in errors]
+            E_check = _compute_energy_from_errors(e_check, self, x.detach(), gamma)
+            grads_check = torch.autograd.grad(E_check, e_check)
+            diagnostics["max_eq_residual"] = max(
+                g.abs().max().item() for g in grads_check
+            )
+
+        # Equilibrium residual in h-space: max|∂E/∂h|
+        # This directly validates the adiabatic assumption (∂E/∂h ≈ 0)
+        # used by the detached x-gradient. At exact convergence ∂E/∂e ≈ 0
+        # implies ∂E/∂h ≈ 0, but Jacobian amplification could cause them
+        # to differ at finite K_h.
+        with torch.enable_grad():
+            hiddens_eq = _errors_to_hiddens(errors, self, x.detach())
+            h_check = [h.detach().requires_grad_(True) for h in hiddens_eq]
+            E_h_check = self.compute_energy(x.detach(), h_check, gamma)
+            h_grads = torch.autograd.grad(E_h_check, h_check)
+            diagnostics["max_eq_residual_h"] = max(
+                g.abs().max().item() for g in h_grads
+            )
+
+        return x, errors, diagnostics
+
+    # TODO read
+    def relax_spring_nudged_errors(self, x_t, x_star, errors_star, u_target,
+                                   beta, T_nudge, gamma, dt, lambda_spring,
+                                   output_scale, alpha,
+                                   K_h=1, async_mode=True):
+        """
+        Nudge phase for spring-clamped EP in error parameterization.
+
+        Same as relax_spring_nudged but tracks errors instead of hiddens.
+
+        Returns:
+            x_beta: nudge equilibrium x (detached).
+            errors_beta: nudge equilibrium errors (list, detached).
+        """
+        x_t_det = x_t.detach()
+        vel_scale = output_scale * alpha * lambda_spring
+        target_x = (x_t_det + u_target.detach() / vel_scale).detach()
+        nudge_coeff = beta * vel_scale ** 2 / 2.0
+
+        x = x_star.detach().clone()
+        errors = [e.detach().clone() for e in errors_star]
+
+        for step in range(T_nudge):
+            # Inner loop: equilibrate errors at current x (τ_h << τ_x)
+            for _ in range(K_h):
+                if async_mode:
+                    even_indices = list(range(0, self.L, 2))
+                    odd_indices = list(range(1, self.L, 2))
+                    for k in even_indices:
+                        errors[k] = self._update_error_gd(x, errors, k, gamma, dt)
+                    for k in odd_indices:
+                        errors[k] = self._update_error_gd(x, errors, k, gamma, dt)
+                else:
+                    new_errors = [
+                        self._update_error_gd(x, errors, k, gamma, dt)
+                        for k in range(self.L)
+                    ]
+                    errors = new_errors
+
+            # Outer step: update x with spring + nudge.
+            # Modelling choice: adiabatic ∂E/∂x|_{h fixed} (see free phase).
+            # Should check
+            hiddens_fixed = _errors_to_hiddens(errors, self, x.detach())
+            hiddens_fixed = [h.detach() for h in hiddens_fixed]
+            with torch.enable_grad():
+                x_grad = x.detach().requires_grad_(True)
+                E = self.compute_energy(x_grad, hiddens_fixed, gamma)
+                spring = (lambda_spring / 2.0) * (x_grad - x_t_det).pow(2).sum()
+                nudge = nudge_coeff * (x_grad - target_x).pow(2).sum()
+                E_nudged = E + spring + nudge
+                grad_x = torch.autograd.grad(E_nudged, x_grad)[0]
+            x = (x_grad - dt * grad_x).detach()
+
+        return x, errors
+
+    # TODO read
+    def ep_gradient_step(self, x_first, h_first, x_second, h_second,
+                         beta, gamma):
+        """
+        EP parameter gradient: ∂L/∂θ ≈ (E_second - E_first) / β.
+
+        For two-phase EP: first=star, second=beta → (E_β - E*) / β.
+        For three-phase: first=minus, second=plus → (E_+ - E_-) / (2β).
+
+        All neuron states (x, h) are DETACHED — only θ is live.
+        Calls .backward() to accumulate gradients into param.grad.
+
+        Args:
+            x_first, h_first: first-phase equilibrium (detached).
+            x_second, h_second: second-phase equilibrium (detached).
+            beta: effective β (use 2β for three-phase).
+            gamma: γ for energy computation.
+
+        Returns:
+            ep_loss: scalar (E_second - E_first) / β for logging.
+        """
+        # Compute energies with θ live (no detach on model weights)
+        E_first = self.compute_energy(x_first.detach(), 
+                                       [h.detach() for h in h_first], gamma)
+        E_second = self.compute_energy(x_second.detach(),
+                                        [h.detach() for h in h_second], gamma)
+        # EP loss: normalized to match flow_loss = (1/N)·Σ||v-u||² exactly.
+        # EP estimates ∂C/∂θ where C = (1/2)·Σ||v-u||² (energy has 1/2 factor).
+        # flow_loss has no 1/2, so ∂flow_loss/∂θ = (2/N)·∂C/∂θ.
+        # The factor of 2 accounts for d/dx(x²) = 2x in flow_loss.
+        N = x_first.numel()  # B * C * H * W
+        ep_loss = 2.0 * (E_second - E_first) / (beta * N)
+        ep_loss.backward()
+        return ep_loss.item()
+
+    # TODO read
+    def ep_gradient_step_errors(self, x_first, errors_first, x_second, errors_second,
+                                beta, gamma):
+        """
+        EP parameter gradient in error parameterization.
+
+        Same as ep_gradient_step but reconstructs hiddens from errors
+        before computing energy (with θ live).
+
+        Returns:
+            ep_loss: scalar for logging.
+        """
+        # Reconstruct hiddens from errors WITH live θ
+        h_first = _errors_to_hiddens([e.detach() for e in errors_first],
+                                      self, x_first.detach())
+        h_second = _errors_to_hiddens([e.detach() for e in errors_second],
+                                       self, x_second.detach())
+
+        E_first = self.compute_energy(x_first.detach(), h_first, gamma)
+        E_second = self.compute_energy(x_second.detach(), h_second, gamma)
+
+        N = x_first.numel()  # B * C * H * W
+        ep_loss = 2.0 * (E_second - E_first) / (beta * N)
+        ep_loss.backward()
+        return ep_loss.item()
+
 
 class PCNVelocityWrapper(nn.Module):
     """
@@ -861,7 +1257,7 @@ class PCNVelocityWrapper(nn.Module):
 
     Args:
         gamma: γ, linear clamp strength. α = 1/γ set automatically.
-        K: number of relaxation iterations.
+        T_free: number of relaxation iterations.
         dt_relax: step size for hidden state relaxation.
         async_mode: even/odd async updates (Scellier App A.1).
         init_mode: "feedforward", "zeros", or "random".
@@ -870,24 +1266,39 @@ class PCNVelocityWrapper(nn.Module):
         n_cg_steps: CG iterations for IFT backward linear solve.
         pool_type: VGG5 pooling type.
         activation: activation function for layers.
+        param_grad_mode: "ift" (Stage 2) or "ep" (Stage 3).
+        lambda_spring: spring constant for EP x-clamping.
+        beta: EP nudge strength.
+        T_nudge: nudge phase relaxation steps.
+        thirdphase: use three-phase EP for O(β²) accuracy.
     """
 
-    def __init__(self, gamma=0.01, K=10, dt_relax=0.5, async_mode=True,
+    def __init__(self, gamma=0.01, T_free=10, dt_relax=0.5, async_mode=True,
                  init_mode="feedforward", output_scale=100.0, energy_clamp=None,
                  n_cg_steps=10, pool_type="avgpool", activation="silu",
-                 error_param=False):
+                 error_param=False, param_grad_mode="ift",
+                 lambda_spring=10.0, beta=0.1, T_nudge=4, thirdphase=True,
+                 K_h=2):
         super().__init__()
         self.pcn = PCNEnergyModel(pool_type=pool_type, activation=activation)
         self.gamma = gamma
         self.alpha = 1.0 / gamma  # v = -output_scale · α · ∂E/∂x; total scale = output_scale/γ
         self.output_scale = output_scale
         self.energy_clamp = energy_clamp
-        self.K = K
+        self.T_free = T_free
         self.dt_relax = dt_relax
         self.async_mode = async_mode
         self.init_mode = init_mode
         self.n_cg_steps = n_cg_steps
         self.error_param = error_param
+
+        # EP-specific parameters (Stage 3)
+        self.param_grad_mode = param_grad_mode
+        self.lambda_spring = lambda_spring
+        self.beta = beta
+        self.T_nudge = T_nudge
+        self.thirdphase = thirdphase
+        self.K_h = K_h  # inner h-equilibration steps per x-step (τ_h << τ_x)
 
         # Store latest diagnostics for external access (e.g. W&B logging)
         self._last_diagnostics = None
@@ -903,7 +1314,7 @@ class PCNVelocityWrapper(nn.Module):
         Shape: (B,).
         """
         hiddens, _ = self.pcn.relax_hiddens(
-            x, self.gamma, self.K, self.dt_relax,
+            x, self.gamma, self.K_h, self.dt_relax,
             self.async_mode, self.init_mode
         )
         with torch.no_grad():
@@ -916,34 +1327,161 @@ class PCNVelocityWrapper(nn.Module):
 
     def velocity(self, x, t):
         """
-        Compute velocity v(x) = -output_scale · (1/γ) · ∂_x E_int(x, h*, o*).
+        Compute velocity v(x).
 
-        Uses implicit function theorem (IFT) for parameter gradients:
-            1. Relax h to equilibrium (fully detached — fast)
-            2. Attach IFT backward to h* via IFTEquilibriumHiddens
-            3. Compute ∂E/∂x at equilibrium with create_graph=True
-            4. loss.backward() flows through ∂E/∂x → h* → IFT → θ
+        Dispatches based on param_grad_mode:
+          - "ift": v = -output_scale·α·∂E/∂x with IFT backward (Stage 2)
+          - "ep":  v = output_scale·α·λ·(x*-x_t) from spring displacement (Stage 3)
+                   Caches free-phase equilibrium for later compute_ep_gradients() call.
 
-        The IFT backward solves (∂²E/∂h²)·w = upstream_grad via CG,
-        giving the exact ∂h*/∂θ = -(∂²E/∂h²)⁻¹·∂²E/(∂h∂θ).
-        This matches feedforward ∂v/∂θ by the envelope theorem proof.
-
-        During inference: everything detached, no IFT overhead.
-
-        Shape: (B, 1, 28, 28) — same as input.
+        During inference (no grad): always uses IFT path (detached, no overhead).
         """
         training = torch.is_grad_enabled()
+
+        if training and self.param_grad_mode == "ep":
+            return self._velocity_ep_spring(x)
 
         if self.error_param:
             return self._velocity_error_param(x, training)
         else:
             return self._velocity_h_param(x, training)
 
+    # TODO read
+    def _velocity_ep_spring(self, x):
+        """
+        EP spring-clamped velocity: v = output_scale · α · λ · (x* - x_t).
+
+        Runs the free phase to get x*, then reads velocity from spring
+        displacement. No autograd, no create_graph. Caches the free-phase
+        equilibrium state on self for use by compute_ep_gradients().
+
+        Returns: velocity (B, 1, 28, 28), detached.
+        """
+        gamma = self.gamma
+        T_free = self.T_free
+        dt = self.dt_relax
+        lam = self.lambda_spring
+
+        if self.error_param:
+            x_star, eq_state, diag = self.pcn.relax_spring_free_errors(
+                x, gamma, T_free, dt, lam,
+                K_h=self.K_h, async_mode=self.async_mode,
+                init_mode=self.init_mode
+            )
+        else:
+            x_star, eq_state, diag = self.pcn.relax_spring_free(
+                x, gamma, T_free, dt, lam,
+                K_h=self.K_h, async_mode=self.async_mode,
+                init_mode=self.init_mode
+            )
+
+        self._last_diagnostics = diag
+        # Cache for compute_ep_gradients()
+        self._ep_cache = {
+            "x_t": x.detach(),
+            "x_star": x_star,
+            "eq_state": eq_state,  # hiddens or errors depending on error_param
+        }
+
+        v = (self.output_scale * self.alpha * lam
+             * (x_star - x.detach())).detach()
+        return v
+
+    # TODO read
+    def compute_ep_gradients(self, u_target):
+        """
+        EP parameter gradient step: nudge phase(s) + energy difference → .backward().
+
+        Must be called AFTER velocity() in EP mode (which caches the free-phase
+        equilibrium). This is the EP equivalent of loss.backward() — it
+        accumulates gradients into param.grad via (E_β - E*) / β.
+
+        Args:
+            u_target: target velocity from flow matching (B, 1, 28, 28).
+
+        Returns:
+            ep_diagnostics: dict with ep_loss, nudge_disp, free_x_disp.
+        """
+        cache = self._ep_cache
+        x_t = cache["x_t"]
+        x_star = cache["x_star"]
+        eq_state = cache["eq_state"]
+
+        gamma = self.gamma
+        dt = self.dt_relax
+        lam = self.lambda_spring
+        T_nudge = self.T_nudge
+
+        # Compensate β so nudge strength is independent of λ and output_scale.
+        # The nudge formula uses nudge_coeff = β·vel_scale²/2. By dividing β by
+        # vel_scale², the effective nudge_coeff becomes β_user/2 — the user tunes
+        # a single β that works regardless of λ or output_scale.
+        vel_scale = self.output_scale * self.alpha * lam
+        beta = self.beta / (vel_scale ** 2)
+
+        if self.error_param:
+            # Positive nudge
+            x_plus, eq_plus = self.pcn.relax_spring_nudged_errors(
+                x_t, x_star, eq_state, u_target,
+                beta, T_nudge, gamma, dt, lam,
+                self.output_scale, self.alpha,
+                K_h=self.K_h, async_mode=self.async_mode
+            )
+            if self.thirdphase:
+                # Negative nudge (same free eq, β → -β)
+                x_minus, eq_minus = self.pcn.relax_spring_nudged_errors(
+                    x_t, x_star, eq_state, u_target,
+                    -beta, T_nudge, gamma, dt, lam,
+                    self.output_scale, self.alpha,
+                    K_h=self.K_h, async_mode=self.async_mode
+                )
+                ep_loss = self.pcn.ep_gradient_step_errors(
+                    x_minus, eq_minus, x_plus, eq_plus,
+                    2 * beta, gamma
+                )
+            else:
+                ep_loss = self.pcn.ep_gradient_step_errors(
+                    x_star, eq_state, x_plus, eq_plus,
+                    beta, gamma
+                )
+        else:
+            x_plus, eq_plus = self.pcn.relax_spring_nudged(
+                x_t, x_star, eq_state, u_target,
+                beta, T_nudge, gamma, dt, lam,
+                self.output_scale, self.alpha,
+                K_h=self.K_h, async_mode=self.async_mode
+            )
+            if self.thirdphase:
+                x_minus, eq_minus = self.pcn.relax_spring_nudged(
+                    x_t, x_star, eq_state, u_target,
+                    -beta, T_nudge, gamma, dt, lam,
+                    self.output_scale, self.alpha,
+                    K_h=self.K_h, async_mode=self.async_mode
+                )
+                ep_loss = self.pcn.ep_gradient_step(
+                    x_minus, eq_minus, x_plus, eq_plus,
+                    2 * beta, gamma
+                )
+            else:
+                ep_loss = self.pcn.ep_gradient_step(
+                    x_star, eq_state, x_plus, eq_plus,
+                    beta, gamma
+                )
+
+        nudge_disp = (x_plus - x_star).pow(2).mean().sqrt().item()
+        diag = self._last_diagnostics or {}
+
+        return {
+            "ep_loss": ep_loss,
+            "nudge_disp": nudge_disp,
+            "free_x_disp": diag.get("x_disp", [0.0])[-1],
+        }
+
     def _velocity_h_param(self, x, training):
         """Original h-parameterized velocity computation."""
         # 1. Relax to equilibrium (fully detached)
         hiddens, diag = self.pcn.relax_hiddens(
-            x, self.gamma, self.K, self.dt_relax,
+            x, self.gamma, self.K_h, self.dt_relax,
             self.async_mode, self.init_mode
         )
         self._last_diagnostics = diag
@@ -984,7 +1522,7 @@ class PCNVelocityWrapper(nn.Module):
         """
         # 1. Relax errors to equilibrium (fully detached)
         errors, diag = self.pcn.relax_errors(
-            x, self.gamma, self.K, self.dt_relax,
+            x, self.gamma, self.K_h, self.dt_relax,
             self.async_mode, self.init_mode
         )
         self._last_diagnostics = diag
@@ -1020,6 +1558,7 @@ class PCNVelocityWrapper(nn.Module):
             return self.potential(x, t)
         else:
             return self.velocity(x, t)
+
 
     def feedforward_velocity(self, x):
         """
