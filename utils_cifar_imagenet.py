@@ -524,6 +524,8 @@ def warmup_lr(step):
     """
     Simple linear warmup schedule for LR.
     """
+    if FLAGS.warmup <= 0:
+        return 1.0
     return min(step, FLAGS.warmup) / FLAGS.warmup
 
 
