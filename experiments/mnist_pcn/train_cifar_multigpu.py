@@ -166,7 +166,7 @@ def forward_all(model,
         cd_loss = cd_val_scaled
 
     total_loss = flow_loss + cd_loss
-    return total_loss, flow_loss, cd_loss, pos_energy, neg_energy, vt_mag, ut_mag, ut
+    return total_loss, flow_loss, cd_loss, pos_energy, neg_energy, vt_mag, ut_mag, ut, t, vt
 
 
 ##############################################################################
@@ -479,7 +479,7 @@ def train_loop(rank, world_size, argv):
             # Both EP and IFT use forward_all for velocity, flow loss, CD, EqM.
             # In EP mode, velocity() returns detached spring displacement (no graph).
             # In IFT mode, velocity() returns grad-tracked output (create_graph=True).
-            total_loss, flow_loss, cd_loss, pos_energy, neg_energy, vt_mag, ut_mag, ut = forward_all(
+            total_loss, flow_loss, cd_loss, pos_energy, neg_energy, vt_mag, ut_mag, ut, t, vt = forward_all(
                 model=net_model,
                 flow_matcher=flow_matcher,
                 x_real_flow=x_real_flow,
@@ -514,6 +514,42 @@ def train_loop(rank, world_size, argv):
             else:
                 optim.step()
             sched.step()
+
+            # ---- Diagnostic dump for high-gradient batches ----
+            # Triggers at half the skip threshold (or gnorm>30 if no threshold)
+            warn_thr = FLAGS.grad_skip_threshold / 2 if FLAGS.grad_skip_threshold > 0 else 30.0
+            if pre_clip_norm > warn_thr and rank == 0:
+                with torch.no_grad():
+                    # t distribution of this batch
+                    t_vals = t.detach().cpu()
+                    per_sample_mse = (vt - ut).square().mean(dim=[1, 2, 3]).detach().cpu()
+                    per_sample_vmag = vt.view(vt.size(0), -1).norm(dim=1).detach().cpu()
+                    per_sample_umag = ut.view(ut.size(0), -1).norm(dim=1).detach().cpu()
+                    worst_idx = per_sample_mse.argmax().item()
+
+                    # Per-layer gradient norms
+                    layer_gnorms = []
+                    for name, p in raw_model.named_parameters():
+                        if p.grad is not None:
+                            layer_gnorms.append((name, p.grad.norm().item()))
+                    layer_gnorms.sort(key=lambda x: -x[1])
+
+                logging.warning(
+                    f"  [GRAD_SPIKE] step={step} gnorm={pre_clip_norm:.1f} "
+                    f"skipped={grad_skipped} "
+                    f"t_range=[{t_vals.min():.3f},{t_vals.max():.3f}] "
+                    f"t_mean={t_vals.mean():.3f} "
+                    f"worst_sample: idx={worst_idx} t={t_vals[worst_idx]:.4f} "
+                    f"mse={per_sample_mse[worst_idx]:.4f} "
+                    f"v_mag={per_sample_vmag[worst_idx]:.1f} "
+                    f"u_mag={per_sample_umag[worst_idx]:.1f}"
+                )
+                # Top 3 layers by gradient norm
+                top_layers = " | ".join(
+                    f"{n.split('.')[-2]}.{n.split('.')[-1]}={g:.1f}"
+                    for n, g in layer_gnorms[:3]
+                )
+                logging.warning(f"  [GRAD_SPIKE] top_layers: {top_layers}")
 
             # Update EMA
             ema(raw_model, ema_model, FLAGS.ema_decay)
@@ -569,9 +605,14 @@ def train_loop(rank, world_size, argv):
                     log_dict["ep_loss"] = ep_diag["ep_loss"]
                     log_dict["nudge_disp"] = ep_diag["nudge_disp"]
                     log_dict["free_x_disp"] = ep_diag["free_x_disp"]
+                    neg_tag = ""
+                    if "nudge_disp_neg" in ep_diag:
+                        log_dict["nudge_disp_neg"] = ep_diag["nudge_disp_neg"]
+                        neg_tag = f", nudge_disp_neg={ep_diag['nudge_disp_neg']:.6f}"
                     logging.info(
                         f"  [EP] ep_loss={ep_diag['ep_loss']:.6f}, "
                         f"nudge_disp={ep_diag['nudge_disp']:.6f}, "
+                        f"{neg_tag}"
                         f"free_x_disp={ep_diag['free_x_disp']:.6f}"
                     )
 

@@ -899,12 +899,13 @@ class PCNEnergyModel(nn.Module):
             # Inner loop: equilibrate h at current x (τ_h << τ_x)
             for _ in range(K_h):
                 if async_mode:
-                    even_indices = list(range(0, self.L, 2))
-                    odd_indices = list(range(1, self.L, 2))
-                    for k in even_indices:
-                        hiddens[k] = self._update_layer_gd(x, hiddens, k, gamma, dt)
-                    for k in odd_indices:
-                        hiddens[k] = self._update_layer_gd(x, hiddens, k, gamma, dt)
+                    for parity in [0, 1]:
+                        for k in range(self.L):
+                            if k % 2 != parity:
+                                continue
+                            hiddens[k] = self._update_layer_gd(
+                                x, hiddens, k, gamma, dt
+                            )
                 else:
                     new_hiddens = [
                         self._update_layer_gd(x, hiddens, k, gamma, dt)
@@ -912,7 +913,14 @@ class PCNEnergyModel(nn.Module):
                     ]
                     hiddens = new_hiddens
 
-            # Outer step: update x via gradient descent on E_spring
+            # Outer step: update x via ∂E_spring/∂x|_{h fixed}.
+            # This computes the PARTIAL derivative ∂E/∂x with h treated as
+            # constants — the same adiabatic assumption as the error-param
+            # version. In h-param this happens naturally because hiddens are
+            # independent GD variables (detached tensors), so no explicit
+            # detach-and-reconstruct step is needed (unlike error-param,
+            # where h = f(x, e) creates a dependency requiring x to be
+            # detached to avoid the total derivative dE/dx path).
             with torch.enable_grad():
                 x_grad = x.detach().requires_grad_(True)
                 E = self.compute_energy(x_grad, hiddens, gamma)
@@ -933,6 +941,18 @@ class PCNEnergyModel(nn.Module):
         # ---- Equilibrium quality diagnostics (matching relax_hiddens) ----
         with torch.no_grad():
             diagnostics["residual_norms"] = self.compute_residuals(x, hiddens)
+
+
+        # max|∂E/∂h|: validates the adiabatic assumption (∂E/∂h ≈ 0).
+        # In h-param, hiddens are independent GD variables, so ∂E/∂h is
+        # already the correct partial derivative (no detach subtlety).
+        with torch.enable_grad():
+            h_check = [h.detach().requires_grad_(True) for h in hiddens]
+            E_h_check = self.compute_energy(x.detach(), h_check, gamma)
+            h_grads = torch.autograd.grad(E_h_check, h_check)
+            diagnostics["max_eq_residual_h"] = max(
+                g.abs().max().item() for g in h_grads
+            )
 
         return x, hiddens, diagnostics
 
@@ -983,12 +1003,13 @@ class PCNEnergyModel(nn.Module):
             # Inner loop: equilibrate h at current x (τ_h << τ_x)
             for _ in range(K_h):
                 if async_mode:
-                    even_indices = list(range(0, self.L, 2))
-                    odd_indices = list(range(1, self.L, 2))
-                    for k in even_indices:
-                        hiddens[k] = self._update_layer_gd(x, hiddens, k, gamma, dt)
-                    for k in odd_indices:
-                        hiddens[k] = self._update_layer_gd(x, hiddens, k, gamma, dt)
+                    for parity in [0, 1]:
+                        for k in range(self.L):
+                            if k % 2 != parity:
+                                continue
+                            hiddens[k] = self._update_layer_gd(
+                                x, hiddens, k, gamma, dt
+                            )
                 else:
                     new_hiddens = [
                         self._update_layer_gd(x, hiddens, k, gamma, dt)
@@ -996,7 +1017,10 @@ class PCNEnergyModel(nn.Module):
                     ]
                     hiddens = new_hiddens
 
-            # Outer step: update x with spring + nudge
+            # Outer step: update x with spring + nudge.
+            # Same partial-derivative logic as relax_spring_free (see comment
+            # there): hiddens are independent GD variables, so no detach-
+            # and-reconstruct needed unlike the error-param version.
             with torch.enable_grad():
                 x_grad = x.detach().requires_grad_(True)
                 E = self.compute_energy(x_grad, hiddens, gamma)
@@ -1048,12 +1072,13 @@ class PCNEnergyModel(nn.Module):
             # Inner loop: equilibrate errors at current x (τ_h << τ_x)
             for _ in range(K_h):
                 if async_mode:
-                    even_indices = list(range(0, self.L, 2))
-                    odd_indices = list(range(1, self.L, 2))
-                    for k in even_indices:
-                        errors[k] = self._update_error_gd(x, errors, k, gamma, dt)
-                    for k in odd_indices:
-                        errors[k] = self._update_error_gd(x, errors, k, gamma, dt)
+                    for parity in [0, 1]:
+                        for k in range(self.L):
+                            if k % 2 != parity:
+                                continue
+                            errors[k] = self._update_error_gd(
+                                x, errors, k, gamma, dt
+                            )
                 else:
                     new_errors = [
                         self._update_error_gd(x, errors, k, gamma, dt)
@@ -1069,6 +1094,7 @@ class PCNEnergyModel(nn.Module):
             # total derivative dE/dx|_{e fixed}, which is the true gradient
             # when errors are held constant but differs from h-param when
             # ∂E/∂h ≠ 0 (i.e. h not fully converged).
+            # TODO should check
             hiddens_fixed = _errors_to_hiddens(errors, self, x.detach())
             hiddens_fixed = [h.detach() for h in hiddens_fixed]
             with torch.enable_grad():
@@ -1121,7 +1147,6 @@ class PCNEnergyModel(nn.Module):
 
         return x, errors, diagnostics
 
-    # TODO read
     def relax_spring_nudged_errors(self, x_t, x_star, errors_star, u_target,
                                    beta, T_nudge, gamma, dt, lambda_spring,
                                    output_scale, alpha,
@@ -1147,12 +1172,13 @@ class PCNEnergyModel(nn.Module):
             # Inner loop: equilibrate errors at current x (τ_h << τ_x)
             for _ in range(K_h):
                 if async_mode:
-                    even_indices = list(range(0, self.L, 2))
-                    odd_indices = list(range(1, self.L, 2))
-                    for k in even_indices:
-                        errors[k] = self._update_error_gd(x, errors, k, gamma, dt)
-                    for k in odd_indices:
-                        errors[k] = self._update_error_gd(x, errors, k, gamma, dt)
+                    for parity in [0, 1]:
+                        for k in range(self.L):
+                            if k % 2 != parity:
+                                continue
+                            errors[k] = self._update_error_gd(
+                                x, errors, k, gamma, dt
+                            )
                 else:
                     new_errors = [
                         self._update_error_gd(x, errors, k, gamma, dt)
@@ -1162,7 +1188,7 @@ class PCNEnergyModel(nn.Module):
 
             # Outer step: update x with spring + nudge.
             # Modelling choice: adiabatic ∂E/∂x|_{h fixed} (see free phase).
-            # Should check
+            # TODO should check
             hiddens_fixed = _errors_to_hiddens(errors, self, x.detach())
             hiddens_fixed = [h.detach() for h in hiddens_fixed]
             with torch.enable_grad():
@@ -1176,7 +1202,6 @@ class PCNEnergyModel(nn.Module):
 
         return x, errors
 
-    # TODO read
     def ep_gradient_step(self, x_first, h_first, x_second, h_second,
                          beta, gamma):
         """
@@ -1202,16 +1227,20 @@ class PCNEnergyModel(nn.Module):
                                        [h.detach() for h in h_first], gamma)
         E_second = self.compute_energy(x_second.detach(),
                                         [h.detach() for h in h_second], gamma)
+
+
         # EP loss: normalized to match flow_loss = (1/N)·Σ||v-u||² exactly.
-        # EP estimates ∂C/∂θ where C = (1/2)·Σ||v-u||² (energy has 1/2 factor).
+        # Note our nudged phase EP pre-factors implementation estimates ∂C/∂θ 
+        # where C = (1/2)·Σ||v-u||² (energy has 1/2 factor).
         # flow_loss has no 1/2, so ∂flow_loss/∂θ = (2/N)·∂C/∂θ.
         # The factor of 2 accounts for d/dx(x²) = 2x in flow_loss.
+        # Also note 'ep_loss' is the scalar whose .backward() deriative gives the loss gradient
+        # it is not a loss in itself.
         N = x_first.numel()  # B * C * H * W
         ep_loss = 2.0 * (E_second - E_first) / (beta * N)
         ep_loss.backward()
         return ep_loss.item()
 
-    # TODO read
     def ep_gradient_step_errors(self, x_first, errors_first, x_second, errors_second,
                                 beta, gamma):
         """
@@ -1232,6 +1261,13 @@ class PCNEnergyModel(nn.Module):
         E_first = self.compute_energy(x_first.detach(), h_first, gamma)
         E_second = self.compute_energy(x_second.detach(), h_second, gamma)
 
+        # EP loss: normalized to match flow_loss = (1/N)·Σ||v-u||² exactly.
+        # Note our nudged phase EP pre-factors implementation estimates ∂C/∂θ 
+        # where C = (1/2)·Σ||v-u||² (energy has 1/2 factor).
+        # flow_loss has no 1/2, so ∂flow_loss/∂θ = (2/N)·∂C/∂θ.
+        # The factor of 2 accounts for d/dx(x²) = 2x in flow_loss.
+        # Also note 'ep_loss' is the scalar whose .backward() deriative gives the loss gradient
+        # it is not a loss in itself.
         N = x_first.numel()  # B * C * H * W
         ep_loss = 2.0 * (E_second - E_first) / (beta * N)
         ep_loss.backward()
@@ -1325,7 +1361,7 @@ class PCNVelocityWrapper(nn.Module):
             # Normalize by batch size (energy was summed over batch)
             return V / x.size(0)
 
-    def velocity(self, x, t):
+    def velocity(self, x, t, velocity_mode=None):
         """
         Compute velocity v(x).
 
@@ -1334,10 +1370,27 @@ class PCNVelocityWrapper(nn.Module):
           - "ep":  v = output_scale·α·λ·(x*-x_t) from spring displacement (Stage 3)
                    Caches free-phase equilibrium for later compute_ep_gradients() call.
 
-        During inference (no grad): always uses IFT path (detached, no overhead).
+        velocity_mode (optional, for inference/generation):
+          - None (default): spring during EP training, internal energy otherwise.
+          - "spring": force spring-clamped velocity (useful to test spring dynamics
+            at inference time on an EP-trained model).
+          - "internal": force internal-energy velocity v = -c·∂E_int/∂x (useful to
+            test whether the raw energy landscape produces good velocities without
+            the spring).
+
         """
         training = torch.is_grad_enabled()
 
+        # Explicit mode override (for generation comparisons)
+        if velocity_mode == "spring":
+            return self._velocity_ep_spring(x)
+        elif velocity_mode == "internal":
+            if self.error_param:
+                return self._velocity_error_param(x, training=False)
+            else:
+                return self._velocity_h_param(x, training=False)
+
+        # Default dispatch: spring during EP training, internal energy otherwise
         if training and self.param_grad_mode == "ep":
             return self._velocity_ep_spring(x)
 
@@ -1346,7 +1399,6 @@ class PCNVelocityWrapper(nn.Module):
         else:
             return self._velocity_h_param(x, training)
 
-    # TODO read
     def _velocity_ep_spring(self, x):
         """
         EP spring-clamped velocity: v = output_scale · α · λ · (x* - x_t).
@@ -1387,7 +1439,7 @@ class PCNVelocityWrapper(nn.Module):
              * (x_star - x.detach())).detach()
         return v
 
-    # TODO read
+
     def compute_ep_gradients(self, u_target):
         """
         EP parameter gradient step: nudge phase(s) + energy difference → .backward().
@@ -1471,11 +1523,14 @@ class PCNVelocityWrapper(nn.Module):
         nudge_disp = (x_plus - x_star).pow(2).mean().sqrt().item()
         diag = self._last_diagnostics or {}
 
-        return {
+        result = {
             "ep_loss": ep_loss,
             "nudge_disp": nudge_disp,
             "free_x_disp": diag.get("x_disp", [0.0])[-1],
         }
+        if self.thirdphase:
+            result["nudge_disp_neg"] = (x_minus - x_star).pow(2).mean().sqrt().item()
+        return result
 
     def _velocity_h_param(self, x, training):
         """Original h-parameterized velocity computation."""
@@ -1552,12 +1607,12 @@ class PCNVelocityWrapper(nn.Module):
         v = -self.output_scale * self.alpha * dEdx
         return v
 
-    def forward(self, t, x, return_potential=False, *args, **kwargs):
+    def forward(self, t, x, return_potential=False, velocity_mode=None, *args, **kwargs):
         """Same signature as EBCNNModelWrapper.forward()."""
         if return_potential:
             return self.potential(x, t)
         else:
-            return self.velocity(x, t)
+            return self.velocity(x, t, velocity_mode=velocity_mode)
 
 
     def feedforward_velocity(self, x):

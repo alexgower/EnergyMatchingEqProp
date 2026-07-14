@@ -59,6 +59,11 @@ flags.DEFINE_string("integrator", "heun",
                     "'heun' (2nd order, 2 evals/step, more accurate). Default: heun.")
 flags.DEFINE_bool("use_ema", False, "Also generate with EMA model weights")
 flags.DEFINE_bool("use_normal", True, "Use non-EMA model weights (default)")
+flags.DEFINE_string("velocity_modes", "",
+                    "Comma-separated velocity modes to generate: 'internal', 'spring', or both. "
+                    "'internal' uses v=-c·∂E/∂x (raw energy landscape). "
+                    "'spring' uses v=c·λ·(x*-x_t) (spring-clamped EP dynamics). "
+                    "Default: 'internal' for non-EP models, 'internal,spring' for EP models.")
 
 # Import models
 from network_cnn import EBCNNModelWrapper
@@ -66,18 +71,19 @@ from network_transformer_vit import EBViTModelWrapper
 from network_pcn import PCNVelocityWrapper
 
 
-def _step(model, x, t_val, dt, integrator):
+def _step(model, x, t_val, dt, integrator, velocity_mode=None):
     """Single integration step: Euler or Heun."""
-    v1 = model(t_val, x)
+    v1 = model(t_val, x, velocity_mode=velocity_mode)
     if integrator == "heun":
         x_pred = x + v1 * dt
-        v2 = model(t_val, x_pred)  # model is time-independent so same t is fine
+        v2 = model(t_val, x_pred, velocity_mode=velocity_mode)
         return x + dt * (v1 + v2) / 2, v1
     else:  # euler
         return x + v1 * dt, v1
 
 
-def ode_integrate(model, x0, t0, t1, dt=0.01, integrator="euler"):
+def ode_integrate(model, x0, t0, t1, dt=0.01, integrator="euler",
+                  velocity_mode=None):
     """
     ODE integration from t0 to t1 (deterministic, no noise).
     Supports 'euler' (1st order) and 'heun' (2nd order) integrators.
@@ -89,7 +95,8 @@ def ode_integrate(model, x0, t0, t1, dt=0.01, integrator="euler"):
 
     with torch.no_grad():
         for t_val in times:
-            x, _ = _step(model, x, t_val.unsqueeze(0), dt, integrator)
+            x, _ = _step(model, x, t_val.unsqueeze(0), dt, integrator,
+                         velocity_mode=velocity_mode)
 
     return x.clamp(-1, 1)
 
@@ -175,12 +182,14 @@ def load_checkpoint(model, ckpt_path, device, use_ema=True):
     return model, step
 
 
-def generate_grid(model, img_shape, device, n_samples, t1, dt, integrator="euler"):
+def generate_grid(model, img_shape, device, n_samples, t1, dt, integrator="euler",
+                  velocity_mode=None):
     """Generate a grid of samples with given parameters."""
     model.eval()
 
     init = torch.randn(n_samples, *img_shape, device=device)
-    final = ode_integrate(model, init, t0=0.0, t1=t1, dt=dt, integrator=integrator)
+    final = ode_integrate(model, init, t0=0.0, t1=t1, dt=dt, integrator=integrator,
+                          velocity_mode=velocity_mode)
     final_01 = final / 2.0 + 0.5  # [-1,1] -> [0,1]
 
     return final_01
@@ -222,6 +231,15 @@ def main(_):
     total_configs = len(weight_variants) * len(t1_values) * len(dt_values)
     config_idx = 0
 
+    # Determine velocity modes to generate
+    is_ep = (FLAGS.model_type == "pcn" and FLAGS.param_grad_mode == "ep")
+    if FLAGS.velocity_modes:
+        vel_modes = [m.strip() for m in FLAGS.velocity_modes.split(",")]
+    elif is_ep:
+        vel_modes = ["internal", "spring"]
+    else:
+        vel_modes = [None]  # default mode
+
     for weight_tag, use_ema in weight_variants:
         # Load weights
         model, step = load_checkpoint(model, FLAGS.ckpt, device, use_ema=use_ema)
@@ -229,54 +247,59 @@ def main(_):
         if FLAGS.gen_converge_threshold > 0:
             # Convergence mode: sweep dt (affects step size / trajectory quality)
             for dt in dt_values:
-                config_idx += 1
-                logging.info(
-                    f"[{config_idx}] {weight_tag} | convergence mode | "
-                    f"dt={dt} | threshold={FLAGS.gen_converge_threshold} | n={FLAGS.n_samples}"
-                )
-                init = torch.randn(FLAGS.n_samples, *img_shape, device=device)
-                samples, n_steps = generate_converged(
-                    model, init, dt=dt,
-                    threshold=FLAGS.gen_converge_threshold,
-                    integrator=FLAGS.integrator
-                )
-                grid = samples / 2.0 + 0.5
-                nrow = int(math.sqrt(FLAGS.n_samples))
-                fname = (
-                    f"GEN_{weight_tag}_{FLAGS.integrator}_step{step}"
-                    f"_converged_dt{dt}_thresh{FLAGS.gen_converge_threshold}"
-                    f"_nsteps{n_steps}.png"
-                )
-                fpath = os.path.join(out_dir, fname)
-                save_image(grid, fpath, nrow=nrow)
-                logging.info(f"  Saved {fpath}")
-        else:
-            # Standard sweep over t1 × dt
-            for t1 in t1_values:
-                for dt in dt_values:
+                for vel_mode in vel_modes:
                     config_idx += 1
-                    n_steps = int(round(t1 / dt))
-
+                    mode_tag = f"_{vel_mode}" if vel_mode else ""
                     logging.info(
-                        f"[{config_idx}/{total_configs}] "
-                        f"{weight_tag} | t1={t1:.2f} | dt={dt} | "
-                        f"steps={n_steps} | n={FLAGS.n_samples}"
+                        f"[{config_idx}] {weight_tag}{mode_tag} | convergence mode | "
+                        f"dt={dt} | threshold={FLAGS.gen_converge_threshold} | n={FLAGS.n_samples}"
                     )
-
-                    grid = generate_grid(
-                        model, img_shape, device,
-                        FLAGS.n_samples, t1, dt,
+                    init = torch.randn(FLAGS.n_samples, *img_shape, device=device)
+                    samples, n_steps = generate_converged(
+                        model, init, dt=dt,
+                        threshold=FLAGS.gen_converge_threshold,
                         integrator=FLAGS.integrator
                     )
-
+                    grid = samples / 2.0 + 0.5
                     nrow = int(math.sqrt(FLAGS.n_samples))
                     fname = (
-                        f"GEN_{weight_tag}_{FLAGS.integrator}_step{step}"
-                        f"_t1{t1:.2f}_dt{dt}_nsteps{n_steps}.png"
+                        f"GEN_{weight_tag}{mode_tag}_{FLAGS.integrator}_step{step}"
+                        f"_converged_dt{dt}_thresh{FLAGS.gen_converge_threshold}"
+                        f"_nsteps{n_steps}.png"
                     )
                     fpath = os.path.join(out_dir, fname)
                     save_image(grid, fpath, nrow=nrow)
                     logging.info(f"  Saved {fpath}")
+        else:
+            # Standard sweep over t1 × dt × velocity_mode
+            for t1 in t1_values:
+                for dt in dt_values:
+                    for vel_mode in vel_modes:
+                        config_idx += 1
+                        n_steps = int(round(t1 / dt))
+                        mode_tag = f"_{vel_mode}" if vel_mode else ""
+
+                        logging.info(
+                            f"[{config_idx}/{total_configs}] "
+                            f"{weight_tag}{mode_tag} | t1={t1:.2f} | dt={dt} | "
+                            f"steps={n_steps} | n={FLAGS.n_samples}"
+                        )
+
+                        grid = generate_grid(
+                            model, img_shape, device,
+                            FLAGS.n_samples, t1, dt,
+                            integrator=FLAGS.integrator,
+                            velocity_mode=vel_mode
+                        )
+
+                        nrow = int(math.sqrt(FLAGS.n_samples))
+                        fname = (
+                            f"GEN_{weight_tag}{mode_tag}_{FLAGS.integrator}_step{step}"
+                            f"_t1{t1:.2f}_dt{dt}_nsteps{n_steps}.png"
+                        )
+                        fpath = os.path.join(out_dir, fname)
+                        save_image(grid, fpath, nrow=nrow)
+                        logging.info(f"  Saved {fpath}")
 
     logging.info(f"\nDone! Generated samples saved to {out_dir}/")
 
