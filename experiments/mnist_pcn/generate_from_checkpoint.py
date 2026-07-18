@@ -64,11 +64,21 @@ flags.DEFINE_string("velocity_modes", "",
                     "'internal' uses v=-c·∂E/∂x (raw energy landscape). "
                     "'spring' uses v=c·λ·(x*-x_t) (spring-clamped EP dynamics). "
                     "Default: 'internal' for non-EP models, 'internal,spring' for EP models.")
+flags.DEFINE_string("langevin_tau_s", "0",
+                    "Comma-separated Langevin sampling times τs (e.g. '1.0,2.0,3.0'). If any >0, "
+                    "sample via the paper's Langevin SDE (Algorithm 3) instead of the ODE: τs is "
+                    "the Langevin analog of t1 (total integration time = n_steps·dt, "
+                    "n_steps=round(τs/dt)), swept exactly like gen_t1_sweep (cf. the paper's "
+                    "Figure 6, quality vs τs). Uses --gen_dt_sweep for dt and --epsilon_max / "
+                    "--time_cutoff (τ*) for the ε(t) schedule (ε=0 while t<τ* → OT transport, "
+                    "then ε_max → Langevin on the manifold). Only mode that exercises the "
+                    "CD-shaped Boltzmann well. UNet/CNN only (differentiable potential); not PCN.")
 
 # Import models
 from network_cnn import EBCNNModelWrapper
 from network_transformer_vit import EBViTModelWrapper
 from network_pcn import PCNVelocityWrapper
+from utils import gibbs_sampling_time_sweep
 
 
 def _step(model, x, t_val, dt, integrator, velocity_mode=None):
@@ -133,8 +143,17 @@ def build_model(device):
             init_mode=FLAGS.pcn_init_mode,
             output_scale=FLAGS.output_scale,
             energy_clamp=FLAGS.energy_clamp if FLAGS.energy_clamp and FLAGS.energy_clamp > 0 else None,
+            n_cg_steps=FLAGS.pcn_cg_steps,
             pool_type=FLAGS.pool_type,
             activation=FLAGS.activation,
+            error_param=FLAGS.pcn_error_param,
+            param_grad_mode=FLAGS.param_grad_mode,
+            lambda_spring=FLAGS.lambda_spring,
+            beta=FLAGS.beta,
+            T_nudge=FLAGS.T_nudge,
+            thirdphase=FLAGS.thirdphase,
+            K_h=FLAGS.K_h,
+            nudge_type=FLAGS.nudge_type,
         ).to(device)
     elif FLAGS.model_type in ("historical", "vgg5"):
         version = "vgg5" if FLAGS.model_type == "vgg5" else "historical"
@@ -205,6 +224,7 @@ def main(_):
     # Parse sweep parameters
     t1_values = [float(x.strip()) for x in FLAGS.gen_t1_sweep.split(",")]
     dt_values = [float(x.strip()) for x in FLAGS.gen_dt_sweep.split(",")]
+    taus_values = [float(x.strip()) for x in FLAGS.langevin_tau_s.split(",")]
 
     # Build model
     model, img_shape = build_model(device)
@@ -244,7 +264,41 @@ def main(_):
         # Load weights
         model, step = load_checkpoint(model, FLAGS.ckpt, device, use_ema=use_ema)
 
-        if FLAGS.gen_converge_threshold > 0:
+        if max(taus_values) > 0.0:
+            # Paper Algorithm 3: Langevin SDE from noise. τs is the Langevin analog
+            # of the ODE endpoint t1 (total integration time = n_steps·dt); sweeping
+            # it reproduces the paper's Figure 6 (quality vs τs). plot_epsilon gives
+            # the ε(t) schedule (ε=0 while t<τ*=time_cutoff → deterministic OT
+            # transport; ε_max for t≥1 → Langevin diffusion on the manifold).
+            # at_data_mask all False = noise-initialized unconditional sampling.
+            # This exercises the CD-shaped Boltzmann well the ODE samplers never reach.
+            for tau_s in taus_values:
+                if tau_s <= 0.0:
+                    continue
+                for dt in dt_values:
+                    config_idx += 1
+                    n_steps = int(round(tau_s / dt))
+                    logging.info(
+                        f"[{config_idx}] {weight_tag} | Langevin SDE | "
+                        f"tau_s={tau_s} n_steps={n_steps} dt={dt} "
+                        f"eps_max={FLAGS.epsilon_max} tau*={FLAGS.time_cutoff} | n={FLAGS.n_samples}"
+                    )
+                    init = torch.randn(FLAGS.n_samples, *img_shape, device=device)
+                    at_data_mask = torch.zeros(FLAGS.n_samples, dtype=torch.bool, device=device)
+                    samples = gibbs_sampling_time_sweep(
+                        x_init=init, model=model, at_data_mask=at_data_mask,
+                        n_steps=n_steps, dt=dt
+                    )
+                    grid = samples / 2.0 + 0.5
+                    nrow = int(math.sqrt(FLAGS.n_samples))
+                    fname = (
+                        f"LANGEVIN_{weight_tag}_step{step}_taus{tau_s}"
+                        f"_dt{dt}_eps{FLAGS.epsilon_max}_nsteps{n_steps}.png"
+                    )
+                    fpath = os.path.join(out_dir, fname)
+                    save_image(grid, fpath, nrow=nrow)
+                    logging.info(f"  Saved {fpath}")
+        elif FLAGS.gen_converge_threshold > 0:
             # Convergence mode: sweep dt (affects step size / trajectory quality)
             for dt in dt_values:
                 for vel_mode in vel_modes:

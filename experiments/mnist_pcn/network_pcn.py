@@ -960,7 +960,7 @@ class PCNEnergyModel(nn.Module):
     def relax_spring_nudged(self, x_t, x_star, h_star, u_target,
                             beta, T_nudge, gamma, dt, lambda_spring,
                             output_scale, alpha,
-                            K_h=1, async_mode=True):
+                            K_h=1, async_mode=True, nudge_type="quadratic"):
         """
         Nudge phase for spring-clamped EP: re-relax with a velocity nudge loss.
 
@@ -993,8 +993,18 @@ class PCNEnergyModel(nn.Module):
         """
         x_t_det = x_t.detach()
         vel_scale = output_scale * alpha * lambda_spring
+        
+        # Quadratic nudge target (unused when nudge_type='linear').
         target_x = (x_t_det + u_target.detach() / vel_scale).detach()
         nudge_coeff = beta * vel_scale ** 2 / 2.0
+        
+        # Linear tilt: frozen velocity mismatch g = v_free - v_hat; tilt coeff
+        # beta*vel_scale matches the quadratic nudge's first-order displacement.
+        g_frozen = (vel_scale * (x_star.detach() - x_t_det)
+                    - u_target.detach()).detach()
+        tilt_coeff = beta * vel_scale
+
+
 
         x = x_star.detach().clone()
         hiddens = [h.detach().clone() for h in h_star]
@@ -1025,7 +1035,13 @@ class PCNEnergyModel(nn.Module):
                 x_grad = x.detach().requires_grad_(True)
                 E = self.compute_energy(x_grad, hiddens, gamma)
                 spring = (lambda_spring / 2.0) * (x_grad - x_t_det).pow(2).sum()
-                nudge = nudge_coeff * (x_grad - target_x).pow(2).sum()
+
+                if nudge_type == "linear":
+                    # Linear tilt: constant force tilt_coeff*g (zero curvature).
+                    nudge = tilt_coeff * (g_frozen * x_grad).sum()
+                else:
+                    nudge = nudge_coeff * (x_grad - target_x).pow(2).sum()
+                    
                 E_nudged = E + spring + nudge
                 grad_x = torch.autograd.grad(E_nudged, x_grad)[0]
             x = (x_grad - dt * grad_x).detach()
@@ -1150,7 +1166,7 @@ class PCNEnergyModel(nn.Module):
     def relax_spring_nudged_errors(self, x_t, x_star, errors_star, u_target,
                                    beta, T_nudge, gamma, dt, lambda_spring,
                                    output_scale, alpha,
-                                   K_h=1, async_mode=True):
+                                   K_h=1, async_mode=True, nudge_type="quadratic"):
         """
         Nudge phase for spring-clamped EP in error parameterization.
 
@@ -1162,8 +1178,16 @@ class PCNEnergyModel(nn.Module):
         """
         x_t_det = x_t.detach()
         vel_scale = output_scale * alpha * lambda_spring
+        
+        # Quadratic nudge target (unused when nudge_type='linear').
         target_x = (x_t_det + u_target.detach() / vel_scale).detach()
         nudge_coeff = beta * vel_scale ** 2 / 2.0
+        
+        # Linear tilt: frozen velocity mismatch g = v_free - v_hat; tilt coeff
+        # beta*vel_scale matches the quadratic nudge's first-order displacement.
+        g_frozen = (vel_scale * (x_star.detach() - x_t_det)
+                    - u_target.detach()).detach()
+        tilt_coeff = beta * vel_scale
 
         x = x_star.detach().clone()
         errors = [e.detach().clone() for e in errors_star]
@@ -1195,7 +1219,13 @@ class PCNEnergyModel(nn.Module):
                 x_grad = x.detach().requires_grad_(True)
                 E = self.compute_energy(x_grad, hiddens_fixed, gamma)
                 spring = (lambda_spring / 2.0) * (x_grad - x_t_det).pow(2).sum()
-                nudge = nudge_coeff * (x_grad - target_x).pow(2).sum()
+                
+                if nudge_type == "linear":
+                    # Linear tilt: constant force tilt_coeff*g (zero curvature).
+                    nudge = tilt_coeff * (g_frozen * x_grad).sum()
+                else:
+                    nudge = nudge_coeff * (x_grad - target_x).pow(2).sum()
+                    
                 E_nudged = E + spring + nudge
                 grad_x = torch.autograd.grad(E_nudged, x_grad)[0]
             x = (x_grad - dt * grad_x).detach()
@@ -1314,7 +1344,7 @@ class PCNVelocityWrapper(nn.Module):
                  n_cg_steps=10, pool_type="avgpool", activation="silu",
                  error_param=False, param_grad_mode="ift",
                  lambda_spring=10.0, beta=0.1, T_nudge=4, thirdphase=True,
-                 K_h=2):
+                 K_h=2, nudge_type="quadratic"):
         super().__init__()
         self.pcn = PCNEnergyModel(pool_type=pool_type, activation=activation)
         self.gamma = gamma
@@ -1335,6 +1365,7 @@ class PCNVelocityWrapper(nn.Module):
         self.T_nudge = T_nudge
         self.thirdphase = thirdphase
         self.K_h = K_h  # inner h-equilibration steps per x-step (τ_h << τ_x)
+        self.nudge_type = nudge_type
 
         # Store latest diagnostics for external access (e.g. W&B logging)
         self._last_diagnostics = None
@@ -1347,7 +1378,9 @@ class PCNVelocityWrapper(nn.Module):
                             = output_scale · (1/γ) · E_int
         At equilibrium, E_int ≈ γ·F(x), so V ≈ output_scale · F(x).
 
-        Shape: (B,).
+        Returns a SCALAR: compute_energy sums over the batch and this divides by
+        B, so the result is the batch-MEAN potential, not a per-sample value.
+        For per-sample scores use potential_per_sample().
         """
         hiddens, _ = self.pcn.relax_hiddens(
             x, self.gamma, self.K_h, self.dt_relax,
@@ -1477,7 +1510,8 @@ class PCNVelocityWrapper(nn.Module):
                 x_t, x_star, eq_state, u_target,
                 beta, T_nudge, gamma, dt, lam,
                 self.output_scale, self.alpha,
-                K_h=self.K_h, async_mode=self.async_mode
+                K_h=self.K_h, async_mode=self.async_mode,
+                nudge_type=self.nudge_type
             )
             if self.thirdphase:
                 # Negative nudge (same free eq, β → -β)
@@ -1485,7 +1519,8 @@ class PCNVelocityWrapper(nn.Module):
                     x_t, x_star, eq_state, u_target,
                     -beta, T_nudge, gamma, dt, lam,
                     self.output_scale, self.alpha,
-                    K_h=self.K_h, async_mode=self.async_mode
+                    K_h=self.K_h, async_mode=self.async_mode,
+                    nudge_type=self.nudge_type
                 )
                 ep_loss = self.pcn.ep_gradient_step_errors(
                     x_minus, eq_minus, x_plus, eq_plus,
@@ -1501,14 +1536,16 @@ class PCNVelocityWrapper(nn.Module):
                 x_t, x_star, eq_state, u_target,
                 beta, T_nudge, gamma, dt, lam,
                 self.output_scale, self.alpha,
-                K_h=self.K_h, async_mode=self.async_mode
+                K_h=self.K_h, async_mode=self.async_mode,
+                nudge_type=self.nudge_type
             )
             if self.thirdphase:
                 x_minus, eq_minus = self.pcn.relax_spring_nudged(
                     x_t, x_star, eq_state, u_target,
                     -beta, T_nudge, gamma, dt, lam,
                     self.output_scale, self.alpha,
-                    K_h=self.K_h, async_mode=self.async_mode
+                    K_h=self.K_h, async_mode=self.async_mode,
+                    nudge_type=self.nudge_type
                 )
                 ep_loss = self.pcn.ep_gradient_step(
                     x_minus, eq_minus, x_plus, eq_plus,
@@ -1523,11 +1560,27 @@ class PCNVelocityWrapper(nn.Module):
         nudge_disp = (x_plus - x_star).pow(2).mean().sqrt().item()
         diag = self._last_diagnostics or {}
 
+        # Free-phase velocity mismatch g = v_free - v_hat (drives the nudge). Its
+        # RMS is the per-element velocity error; its max sets the binding case
+        # for the linear-tilt constraint beta*|g| << gamma (largest at high t).
+        with torch.no_grad():
+            g_mismatch = vel_scale * (x_star - x_t) - u_target
+            vel_mismatch = g_mismatch.pow(2).mean().sqrt().item()
+
         result = {
             "ep_loss": ep_loss,
             "nudge_disp": nudge_disp,
             "free_x_disp": diag.get("x_disp", [0.0])[-1],
+            "vel_mismatch": vel_mismatch,
         }
+        if self.nudge_type == "linear":
+            # Linear-tilt finite-difference constraint (appendix "β|g| ≪ γ"): this
+            # is the worst-case probe displacement |Δx|_max, which IS the appendix's
+            # β|g|/γ in the code's normalization — Δx = (β/vel_scale)·g/λ — and must
+            # stay << the O(1) length scale over which ∇E varies. 
+            with torch.no_grad():
+                g_max = g_mismatch.abs().max().item()
+            result["linear_nudge_constraint"] = (self.beta / vel_scale) * g_max / self.lambda_spring
         if self.thirdphase:
             result["nudge_disp_neg"] = (x_minus - x_star).pow(2).mean().sqrt().item()
         return result

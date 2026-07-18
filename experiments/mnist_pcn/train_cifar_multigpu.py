@@ -307,6 +307,7 @@ def train_loop(rank, world_size, argv):
             T_nudge=FLAGS.T_nudge,
             thirdphase=FLAGS.thirdphase,
             K_h=FLAGS.K_h,
+            nudge_type=FLAGS.nudge_type,
         ).to(device)
         if FLAGS.pcn_float64:
             net_model = net_model.to(torch.float64)
@@ -317,7 +318,7 @@ def train_loop(rank, world_size, argv):
         if FLAGS.param_grad_mode == "ep":
             logging.info(f"[PCN] EP mode: λ_spring={FLAGS.lambda_spring}, β={FLAGS.beta}, "
                          f"T_free={FLAGS.T_free}, T_nudge={FLAGS.T_nudge}, "
-                         f"thirdphase={FLAGS.thirdphase}")
+                         f"thirdphase={FLAGS.thirdphase}, nudge_type={FLAGS.nudge_type}")
     elif FLAGS.model_type in ("historical", "vgg5", "mlp"):
         version = FLAGS.model_type
         net_model = EBCNNModelWrapper(
@@ -495,9 +496,18 @@ def train_loop(rank, world_size, argv):
 
             if is_ep_mode:
                 # EP: parameter gradients via nudge phases + energy difference.
-                # total_loss has no grad (velocity was detached), so we skip .backward()
-                # and instead compute EP gradients from the cached free-phase equilibrium.
+                # flow_loss has no grad (velocity was detached), so we skip its
+                # .backward() and instead compute EP gradients from the cached
+                # free-phase equilibrium.
                 ep_diag = raw_model.compute_ep_gradients(ut)
+                # Phase-2 CD: EP handles the flow/velocity gradient (its purpose);
+                # the contrastive-divergence term is a standard scalar-energy EBM
+                # loss (energy VALUES, not gradients), so apply it by normal
+                # backprop ON TOP of the EP gradient (grad already zeroed at
+                # optim.zero_grad() above; cd_loss is grad-tracked in theta).
+                # TODO check everything is fine later
+                if FLAGS.lambda_cd > 0.0:
+                    cd_loss.backward()
             else:
                 # IFT / feedforward: standard backprop through total_loss
                 total_loss.backward()
@@ -605,15 +615,25 @@ def train_loop(rank, world_size, argv):
                     log_dict["ep_loss"] = ep_diag["ep_loss"]
                     log_dict["nudge_disp"] = ep_diag["nudge_disp"]
                     log_dict["free_x_disp"] = ep_diag["free_x_disp"]
+                    log_dict["vel_mismatch"] = ep_diag["vel_mismatch"]
+                    if "linear_nudge_constraint" in ep_diag:
+                        # Appendix beta*|g|<<gamma = worst-case probe |dx|_max; <<1.
+                        log_dict["linear_nudge_constraint"] = ep_diag["linear_nudge_constraint"]
                     neg_tag = ""
                     if "nudge_disp_neg" in ep_diag:
                         log_dict["nudge_disp_neg"] = ep_diag["nudge_disp_neg"]
-                        neg_tag = f", nudge_disp_neg={ep_diag['nudge_disp_neg']:.6f}"
+                        neg_tag = f"nudge_disp_neg={ep_diag['nudge_disp_neg']:.6f}, "
+                    constraint_tag = ""
+                    if "linear_nudge_constraint" in ep_diag:
+                        # appendix beta*|g|<<gamma (= worst-case probe |dx|_max, <<1)
+                        constraint_tag = f", lin_constraint={ep_diag['linear_nudge_constraint']:.5f}"
                     logging.info(
                         f"  [EP] ep_loss={ep_diag['ep_loss']:.6f}, "
                         f"nudge_disp={ep_diag['nudge_disp']:.6f}, "
                         f"{neg_tag}"
-                        f"free_x_disp={ep_diag['free_x_disp']:.6f}"
+                        f"free_x_disp={ep_diag['free_x_disp']:.6f}, "
+                        f"vel_mismatch={ep_diag['vel_mismatch']:.6f}"
+                        f"{constraint_tag}"
                     )
 
                 if wandb is not None and wandb.run is not None:

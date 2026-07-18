@@ -143,7 +143,17 @@ def define_flags():
                        "scaled to β_eff = β / vel_scale² in compute_ep_gradients() so "
                        "the user tunes one value regardless of λ or output_scale. "
                        "Larger = faster nudge convergence but O(β) bias; "
-                       "smaller = more accurate but float32 noise in (E_β-E*)/β.")
+                       "smaller = more accurate but float32 noise in (E_β-E*)/β. "
+                       "With nudge_type='quadratic' the accuracy/stability constraint is "
+                       "β/λ ≪ 1; with nudge_type='linear' it relaxes to β·|g| ≪ γ "
+                       "(g = v_free - v̂), letting β be raised for better gradient SNR.")
+    flags.DEFINE_string("nudge_type", "quadratic",
+                        "EP nudge loss: 'quadratic' (velocity-MSE nudge, quadratic in x, "
+                        "binding β/λ ≪ 1 linear-response constraint) or 'linear' "
+                        "(frozen-g linear tilt, zero added x-curvature — removes the β/λ "
+                        "constraint and the O((β/λ)²) finite-difference bias; targets the "
+                        "identical parameter gradient via the Gauss-Newton stop-gradient "
+                        "identity ∇_θ½‖v-v̂‖² = g·∇_θv).")
     flags.DEFINE_integer("T_nudge", 4,
                          "Nudge phase relaxation steps. Can be fewer than K (= T_free free phase) "
                          "since starting from an already-converged equilibrium.")
