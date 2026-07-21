@@ -76,7 +76,7 @@ flags.DEFINE_string("langevin_tau_s", "0",
 
 # Import models
 from network_cnn import EBCNNModelWrapper
-from network_transformer_vit import EBViTModelWrapper
+from network_unet import EBViTModelWrapper, EBMLPModelWrapper, EBConvUNetWrapper
 from network_pcn import PCNVelocityWrapper
 from utils import gibbs_sampling_time_sweep
 
@@ -134,7 +134,9 @@ def build_model(device):
     """Build model from FLAGS (same logic as train script)."""
     img_shape = (1, 28, 28)
 
-    if FLAGS.model_type == "pcn":
+    paradigm, arch, pcn_topology = config.resolve_model_type(FLAGS.model_type)
+    _clamp = FLAGS.energy_clamp if FLAGS.energy_clamp and FLAGS.energy_clamp > 0 else None
+    if paradigm == "pcn":
         model = PCNVelocityWrapper(
             gamma=FLAGS.pcn_gamma,
             T_free=FLAGS.T_free,
@@ -142,7 +144,7 @@ def build_model(device):
             async_mode=FLAGS.pcn_async,
             init_mode=FLAGS.pcn_init_mode,
             output_scale=FLAGS.output_scale,
-            energy_clamp=FLAGS.energy_clamp if FLAGS.energy_clamp and FLAGS.energy_clamp > 0 else None,
+            energy_clamp=_clamp,
             n_cg_steps=FLAGS.pcn_cg_steps,
             pool_type=FLAGS.pool_type,
             activation=FLAGS.activation,
@@ -154,30 +156,63 @@ def build_model(device):
             thirdphase=FLAGS.thirdphase,
             K_h=FLAGS.K_h,
             nudge_type=FLAGS.nudge_type,
+            ep_x_grad_mode=FLAGS.ep_x_grad_mode,
+            pcn_arch=pcn_topology,
+            unet_kwargs=dict(
+                num_channels=FLAGS.num_channels,
+                num_res_blocks=FLAGS.num_res_blocks,
+                channel_mult=config.parse_channel_mult(FLAGS),
+                attention_resolutions=FLAGS.attention_resolutions,
+                num_heads=FLAGS.num_heads,
+                num_head_channels=FLAGS.num_head_channels,
+                patch_size=FLAGS.patch_size,
+                embed_dim=FLAGS.embed_dim,
+                transformer_nheads=FLAGS.transformer_nheads,
+                transformer_nlayers=FLAGS.transformer_nlayers,
+            ) if arch == "unet_vit" else None,
         ).to(device)
-    elif FLAGS.model_type in ("historical", "vgg5"):
-        version = "vgg5" if FLAGS.model_type == "vgg5" else "historical"
+    elif arch == "conv_unet":
+        model = EBConvUNetWrapper(
+            output_scale=FLAGS.output_scale,
+            energy_clamp=_clamp,
+            num_channels=FLAGS.num_channels,
+            channel_mult=config.parse_channel_mult(FLAGS),
+            pool_type=FLAGS.pool_type,
+            use_norm=FLAGS.conv_unet_norm,
+        ).to(device)
+    elif arch == "unet_mlp":
+        model = EBMLPModelWrapper(
+            dim=img_shape,
+            num_channels=FLAGS.num_channels,
+            num_res_blocks=FLAGS.num_res_blocks,
+            channel_mult=config.parse_channel_mult(FLAGS),
+            attention_resolutions=FLAGS.attention_resolutions,
+            num_heads=FLAGS.num_heads,
+            num_head_channels=FLAGS.num_head_channels,
+            dropout=FLAGS.dropout,
+            output_scale=FLAGS.output_scale,
+            energy_clamp=_clamp,
+        ).to(device)
+    elif arch in ("historical", "vgg5", "mlp"):
         model = EBCNNModelWrapper(
             output_scale=FLAGS.output_scale,
-            energy_clamp=FLAGS.energy_clamp if FLAGS.energy_clamp and FLAGS.energy_clamp > 0 else None,
-            version=version,
+            energy_clamp=_clamp,
+            version=arch,
             pool_type=FLAGS.pool_type,
         ).to(device)
-    else:
-        # Default: UNet + ViT head (paper architecture)
-        ch_mult = config.parse_channel_mult(FLAGS)
+    else:  # unet_vit — UNet + ViT head (paper architecture)
         model = EBViTModelWrapper(
             dim=img_shape,
             num_channels=FLAGS.num_channels,
             num_res_blocks=FLAGS.num_res_blocks,
-            channel_mult=ch_mult,
+            channel_mult=config.parse_channel_mult(FLAGS),
             attention_resolutions=FLAGS.attention_resolutions,
             num_heads=FLAGS.num_heads,
             num_head_channels=FLAGS.num_head_channels,
             dropout=FLAGS.dropout,
             output_scale=FLAGS.output_scale,
             energy_clamp=FLAGS.energy_clamp,
-            patch_size=7,
+            patch_size=FLAGS.patch_size,
             embed_dim=FLAGS.embed_dim,
             transformer_nheads=FLAGS.transformer_nheads,
             transformer_nlayers=FLAGS.transformer_nlayers,
@@ -252,7 +287,7 @@ def main(_):
     config_idx = 0
 
     # Determine velocity modes to generate
-    is_ep = (FLAGS.model_type == "pcn" and FLAGS.param_grad_mode == "ep")
+    is_ep = (config.is_pcn(FLAGS.model_type) and FLAGS.param_grad_mode == "ep")
     if FLAGS.velocity_modes:
         vel_modes = [m.strip() for m in FLAGS.velocity_modes.split(",")]
     elif is_ep:

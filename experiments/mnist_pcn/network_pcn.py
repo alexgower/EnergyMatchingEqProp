@@ -72,27 +72,22 @@ def _errors_to_hiddens(errors, pcn, x):
     """
     Reconstruct hidden states from prediction errors via forward scan.
 
-    Given errors e_k = f_k(h_{k-1}) - h_k, reconstruct h_k = f_k(h_{k-1}) - e_k.
-    This is a sequential scan from k=1 to L, since each h_k depends on h_{k-1}.
+    Given errors e_k = f_k(parents_k) - h_k, reconstruct h_k = f_k(parents_k) - e_k.
+    This is a sequential scan in topological order: parents of node k always
+    precede it, so they are already reconstructed when node k is visited
+    (chain AND DAG topologies — the graph is read via pcn.predict).
 
     Args:
         errors: list of L error tensors [e_1, ..., e_L].
-        pcn: PCNEnergyModel (provides layers and L).
+        pcn: PCNEnergyModelBase (provides layers, parents and L).
         x: input images (B, C, H, W).
 
     Returns: list of L hidden state tensors [h_1, ..., h_L].
     """
     hiddens = []
-    h_prev = x
-    for k, (layer, e_k) in enumerate(zip(pcn.layers, errors)):
-        # Last layer is FC: flatten (B, C, H, W) → (B, C*H*W) before linear
-        if k == pcn.L - 1:
-            h_prev = h_prev.view(h_prev.size(0), -1)
-
-        pred = layer(h_prev)
-        h_k = pred - e_k
-        hiddens.append(h_k)
-        h_prev = h_k
+    for k in range(pcn.L):
+        pred = pcn.predict(k, x, hiddens)
+        hiddens.append(pred - errors[k])
     return hiddens
 
 
@@ -104,15 +99,15 @@ def _hiddens_to_errors(hiddens, pcn, x):
 
     Args:
         hiddens: list of L hidden state tensors.
-        pcn: PCNEnergyModel.
+        pcn: PCNEnergyModelBase.
         x: input images.
 
     Returns: list of L error tensors [e_1, ..., e_L].
     """
     errors = []
     for k in range(pcn.L):
-        h_prev = pcn._get_h_prev(x, hiddens, k) # i.e. actual dynamical h_prev values, not calculated from just feedforwards
-        pred = pcn.layers[k](h_prev)
+        # Uses the actual dynamical parent values (not a fresh feedforward)
+        pred = pcn.predict(k, x, hiddens)
         errors.append(pred - hiddens[k])
     return errors
 
@@ -126,7 +121,7 @@ def _compute_energy_from_errors(errors, pcn, x, gamma):
 
     Args:
         errors: list of L error tensors (with grad tracking if needed).
-        pcn: PCNEnergyModel.
+        pcn: PCNEnergyModelBase.
         x: input images.
         gamma: clamp strength.
 
@@ -218,7 +213,7 @@ class IFTEquilibriumHiddens(Function):
         """
         Args:
             h_flat: flattened equilibrium states (B, D), requires_grad=True
-            pcn: PCNEnergyModel (not saved — we access it via ctx)
+            pcn: PCNEnergyModelBase (not saved — we access it via ctx)
             x: input images (B, 1, 28, 28)
             gamma: clamp strength
             n_cg_steps: CG iterations for the linear solve
@@ -392,119 +387,26 @@ class IFTEquilibriumErrors(Function):
 
 
 ##############################################################################
-# PCN Layer: one prediction function f_k
+# PCN energy + dynamics engine (topology-agnostic base class)
 ##############################################################################
 
-class PCNLayer(nn.Module):
+class PCNEnergyModelBase(nn.Module):
     """
-    One PCN prediction layer: f_k(h_{k-1}) → prediction of h_k.
+    Topology-agnostic PCN energy + dynamics engine.
 
-    Each layer applies conv (or linear) + activation + optional pooling,
-    matching the standard VGG ordering (conv → act → pool).
+    Holds NO architecture of its own: a subclass sets self.layers (ModuleList of
+    prediction functions f_k), self.L, and self.parents (parents[k] = node
+    indices feeding f_k; -1 denotes the input x), then inherits the full engine
+    here -- energy, relaxation (h- and error-parameterized), spring/EP phases and
+    IFT gradients -- all routed through self.predict(k, x, hiddens).
 
-    In the PCN energy, the residual r_k = f_k(h_{k-1}) - h_k measures the
-    prediction error at layer k.
+    Concrete architectures:
+      PCNCNNEnergyModel (network_pcn_cnn.py)   -- VGG5 as a linear-chain PCN.
+      PCNUNetEnergyModel  (network_pcn_unet.py) -- DAG over UNet+ViT blocks.
+
+    Energy:  E_int(x, h, o) = sum_k 0.5*||f_k(parents_k) - h_k||^2 + gamma*o,
+    with h_0 = x (input) and the final node's scalar output = o.
     """
-    def __init__(self, transform, activation_fn=None, pool=None):
-        """
-        Args:
-            transform: nn.Conv2d or nn.Linear — the learnable transform.
-            activation_fn: nn.Module activation (e.g. nn.SiLU()). None for output layer.
-            pool: nn.Module pooling (e.g. nn.AvgPool2d(2,2)). None if no pooling.
-        """
-        super().__init__()
-        self.transform = transform
-        self.activation_fn = activation_fn
-        self.pool = pool
-
-    def forward(self, h_prev):
-        """Compute f_k(h_{k-1}): transform → activation → pool."""
-        out = self.transform(h_prev)
-        if self.activation_fn is not None:
-            out = self.activation_fn(out)
-        if self.pool is not None:
-            out = self.pool(out)
-        return out
-
-
-##############################################################################
-# PCN Energy Model: VGG5 decomposed into L=6 layers
-##############################################################################
-
-class PCNEnergyModel(nn.Module):
-    """
-    VGG5 decomposed into L=6 PCN prediction layers for energy-based dynamics.
-
-    Energy function:
-        E_int(x, h, o) = Σ_{k=1}^{L} ½||f_k(h_{k-1}) - h_k||² + γ·o
-
-    where h_0 = x (visible input), h_L = o (scalar output), and f_k is the
-    k-th prediction layer (conv + act + optional pool).
-
-    Layer decomposition (matching network_cnn.py VGG5Energy ordering):
-        f_1: Conv(1, 128, 3, pad=1) + SiLU              → h_1: (B, 128, 28, 28)
-        f_2: Conv(128, 256, 3, pad=1) + SiLU + Pool(2)  → h_2: (B, 256, 14, 14)
-        f_3: Conv(256, 512, 3, pad=1) + SiLU + Pool(2)  → h_3: (B, 512, 7, 7)
-        f_4: Conv(512, 512, 3, pad=1) + SiLU + Pool(2)  → h_4: (B, 512, 3, 3)
-        f_5: Conv(512, 512, 3, pad=1) + SiLU + Pool(2)  → h_5: (B, 512, 1, 1)
-        f_6: Linear(512, 1)  [no activation]             → o:   (B, 1)
-    """
-
-    def __init__(self, pool_type="avgpool", activation="silu"):
-        super().__init__()
-
-        act_cls = nn.SiLU if activation == "silu" else nn.ReLU
-
-        def make_pool(channels):
-            if pool_type == "maxpool":
-                return nn.MaxPool2d(2, 2)
-            elif pool_type == "avgpool":
-                return nn.AvgPool2d(2, 2)
-            elif pool_type == "stride_conv":
-                return nn.Conv2d(channels, channels, kernel_size=4, stride=2, padding=1)
-            else:
-                raise ValueError(f"Unknown pool_type: {pool_type}")
-
-        self.layers = nn.ModuleList([
-            # Layer 1: (B,1,28,28) → (B,128,28,28)
-            PCNLayer(
-                nn.Conv2d(1, 128, kernel_size=3, padding=1),
-                activation_fn=act_cls(),
-            ),
-            # Layer 2: (B,128,28,28) → (B,256,14,14)
-            PCNLayer(
-                nn.Conv2d(128, 256, kernel_size=3, padding=1),
-                activation_fn=act_cls(),
-                pool=make_pool(256),
-            ),
-            # Layer 3: (B,256,14,14) → (B,512,7,7)
-            PCNLayer(
-                nn.Conv2d(256, 512, kernel_size=3, padding=1),
-                activation_fn=act_cls(),
-                pool=make_pool(512),
-            ),
-            # Layer 4: (B,512,7,7) → (B,512,3,3)
-            PCNLayer(
-                nn.Conv2d(512, 512, kernel_size=3, padding=1),
-                activation_fn=act_cls(),
-                pool=make_pool(512),
-            ),
-            # Layer 5: (B,512,3,3) → (B,512,1,1)
-            PCNLayer(
-                nn.Conv2d(512, 512, kernel_size=3, padding=1),
-                activation_fn=act_cls(),
-                pool=make_pool(512),
-            ),
-            # Layer 6 (output): (B,512,1,1) → (B,1) scalar
-            # Flatten is handled inside forward; Linear has no activation.
-            PCNLayer(
-                nn.Linear(512, 1),
-                activation_fn=None,
-            ),
-        ])
-        self.L = len(self.layers)
-        self._pool_type = pool_type
-        self._activation = activation
 
     def feedforward_init(self, x):
         """
@@ -516,24 +418,41 @@ class PCNEnergyModel(nn.Module):
         Returns: list of L tensors [h_1, h_2, ..., h_L], each detached.
         """
         hiddens = []
-        h = x
-        for k, layer in enumerate(self.layers):
-            if k == self.L - 1:
-                # Output layer: flatten before linear
-                h = h.view(h.size(0), -1)
-            h = layer(h)
+        for k in range(self.L):
+            # Topological order: parents of node k are already in hiddens.
+            h = self.predict(k, x, hiddens)
             hiddens.append(h.detach().clone())
         return hiddens
 
-    def _get_h_prev(self, x, hiddens, k):
-        """Get h_{k-1} for layer k. k=0 uses x; k>0 uses hiddens[k-1]."""
-        if k == 0:
-            return x
-        h_prev = hiddens[k - 1]
+    def _prepare_input(self, k, parent_vals):
+        """Combine gathered parent states into the input of f_k.
+
+        Chain default: exactly one parent, flattened before the final Linear
+        (k == L-1). DAG subclasses override this or predict() (e.g. the UNet
+        decoder nodes channel-concat [prev, skip]).
+        """
+        h_prev = parent_vals[0]
         if k == self.L - 1:
-            # Output layer expects flattened input
             h_prev = h_prev.view(h_prev.size(0), -1)
         return h_prev
+
+    def predict(self, k, x, hiddens):
+        """Topology-aware prediction f_k(parents_k) — the single hook through
+        which every energy/relaxation/scan routine reads the graph structure.
+
+        Gathering is generic (it just reads self.parents, so any number of
+        parents works), but the default COMBINING step (_prepare_input) is the
+        CHAIN case: exactly one parent. So a DAG subclass overrides either
+        _prepare_input (if only the combining differs) or predict itself —
+        PCNUNetEnergyModel overrides predict, because it must both channel-concat
+        [prev, skip] and inject the constant time embedding into each block.
+        PCNCNNEnergyModel overrides neither: the defaults here ARE the chain.
+
+        hiddens need only be populated up to k-1 (nodes are in topological
+        order, so all parents of node k precede it).
+        """
+        vals = [x if p < 0 else hiddens[p] for p in self.parents[k]]
+        return self.layers[k](self._prepare_input(k, vals))
 
     def compute_energy(self, x, hiddens, gamma):
         """
@@ -553,13 +472,31 @@ class PCNEnergyModel(nn.Module):
         """
         energy = torch.tensor(0.0, device=x.device, dtype=x.dtype)
         for k in range(self.L):
-            h_prev = self._get_h_prev(x, hiddens, k)
-            pred = self.layers[k](h_prev)
+            pred = self.predict(k, x, hiddens)
             r_k = pred - hiddens[k]
             energy = energy + 0.5 * (r_k ** 2).sum()
         # Linear clamp: γ · o (sum over batch)
         output = hiddens[-1]  # (B, 1)
         energy = energy + gamma * output.sum()
+        return energy
+
+    def compute_energy_per_sample(self, x, hiddens, gamma):
+        """Per-sample PCN energy => (B,). Same quantity as compute_energy but
+        reduced over feature dims only, keeping the batch dim.
+
+        compute_energy sums over the batch, which is correct for the relaxation
+        dynamics (∂/∂x_i Σ_j E_j = ∂E_i/∂x_i, so the batch sum is harmless for
+        those gradients) but destroys per-sample values. Per-sample scoring —
+        the CD energy term and the negative sampler's per-sample force ∇_x V —
+        needs this reduction instead. Routed through predict() so it is
+        topology-agnostic (chain AND DAG)."""
+        energy = torch.zeros(x.size(0), device=x.device, dtype=x.dtype)
+        for k in range(self.L):
+            pred = self.predict(k, x, hiddens)
+            r_k = pred - hiddens[k]
+            energy = energy + 0.5 * (r_k ** 2).flatten(1).sum(1)
+        output = hiddens[-1]  # (B, 1)
+        energy = energy + gamma * output.flatten(1).sum(1)
         return energy
 
     def compute_residuals(self, x, hiddens):
@@ -578,9 +515,8 @@ class PCNEnergyModel(nn.Module):
         """
         norms = []
         for k in range(self.L):
-            h_prev = self._get_h_prev(x, hiddens, k)
             with torch.no_grad():
-                pred = self.layers[k](h_prev)
+                pred = self.predict(k, x, hiddens)
                 r_k = pred - hiddens[k]
                 # Per-sample L2 norm, then batch average
                 norm = r_k.view(r_k.size(0), -1).norm(dim=1).mean().item()
@@ -636,20 +572,7 @@ class PCNEnergyModel(nn.Module):
 
         # ---- Relaxation loop (fully detached) ----
         for step in range(K_h):
-            if async_mode:
-                for parity in [0, 1]:
-                    for k in range(self.L):
-                        if k % 2 != parity:
-                            continue
-                        hiddens[k] = self._update_layer_gd(
-                            x_detached, hiddens, k, gamma, dt
-                        )
-            else:
-                new_hiddens = [
-                    self._update_layer_gd(x_detached, hiddens, k, gamma, dt)
-                    for k in range(self.L)
-                ]
-                hiddens = new_hiddens
+            self._relax_sweep_h(x_detached, hiddens, gamma, dt, async_mode)
 
             # Record diagnostics
             with torch.no_grad():
@@ -691,6 +614,44 @@ class PCNEnergyModel(nn.Module):
             E = self.compute_energy(x, hiddens_with_grad, gamma)
             grad = torch.autograd.grad(E, h_k)[0]
         return (h_k - dt * grad).detach()
+
+    def _update_nodes_gd(self, x, hiddens, ks, gamma, dt):
+        """
+        Batched GD step for a SET of nodes: ONE energy evaluation yields
+        ∂E/∂h_k for every k in ks (vs. one full-graph evaluation per node in
+        _update_layer_gd — an ~L/2× per-sweep saving; decisive for the
+        21-node UNet DAG).
+
+        All nodes in ks update from the same pre-pass state (Jacobi within
+        the set). On the chain this is numerically identical to the
+        sequential per-node loop, because same-parity nodes share no energy
+        term. On a DAG with same-parity couplings (UNet skip pairs) the
+        relaxation trajectory differs but the fixed point is the same —
+        and simultaneous updates are the physically-parallel dynamics the
+        EP story assumes. Mutates `hiddens` in place.
+        """
+        if not ks:
+            return
+        with torch.enable_grad():
+            leaves = [hiddens[k].detach().requires_grad_(True) for k in ks]
+            tmp = list(hiddens)
+            for k, leaf in zip(ks, leaves):
+                tmp[k] = leaf
+            E = self.compute_energy(x, tmp, gamma)
+            grads = torch.autograd.grad(E, leaves)
+        for k, leaf, g in zip(ks, leaves, grads):
+            hiddens[k] = (leaf - dt * g).detach()
+
+    def _relax_sweep_h(self, x, hiddens, gamma, dt, async_mode):
+        """One relaxation sweep over all nodes (h-param): 2 energy
+        evaluations in async even/odd mode, 1 in synchronous (full Jacobi)."""
+        if async_mode:
+            for parity in (0, 1):
+                self._update_nodes_gd(
+                    x, hiddens, [k for k in range(self.L) if k % 2 == parity],
+                    gamma, dt)
+        else:
+            self._update_nodes_gd(x, hiddens, list(range(self.L)), gamma, dt)
 
     def _make_zero_hiddens(self, x):
         """Create zero-initialized hidden states with correct shapes."""
@@ -762,20 +723,7 @@ class PCNEnergyModel(nn.Module):
 
         # ---- Relaxation loop (fully detached) ----
         for step in range(K_h):
-            if async_mode:
-                for parity in [0, 1]:
-                    for k in range(self.L):
-                        if k % 2 != parity:
-                            continue
-                        errors[k] = self._update_error_gd(
-                            x_detached, errors, k, gamma, dt
-                        )
-            else:
-                new_errors = [
-                    self._update_error_gd(x_detached, errors, k, gamma, dt)
-                    for k in range(self.L)
-                ]
-                errors = new_errors
+            self._relax_sweep_e(x_detached, errors, gamma, dt, async_mode)
 
             # Record diagnostics
             with torch.no_grad():
@@ -836,6 +784,33 @@ class PCNEnergyModel(nn.Module):
             E = _compute_energy_from_errors(errors_with_grad, self, x, gamma)
             grad = torch.autograd.grad(E, e_k)[0]
         return (e_k - dt * grad).detach()
+
+    def _update_nodes_error_gd(self, x, errors, ks, gamma, dt):
+        """Batched twin of _update_error_gd: one energy evaluation gives
+        ∂E/∂e_k for every k in ks (see _update_nodes_gd for the Jacobi-vs-
+        sequential note). Mutates `errors` in place."""
+        if not ks:
+            return
+        with torch.enable_grad():
+            leaves = [errors[k].detach().requires_grad_(True) for k in ks]
+            tmp = list(errors)
+            for k, leaf in zip(ks, leaves):
+                tmp[k] = leaf
+            E = _compute_energy_from_errors(tmp, self, x, gamma)
+            grads = torch.autograd.grad(E, leaves)
+        for k, leaf, g in zip(ks, leaves, grads):
+            errors[k] = (leaf - dt * g).detach()
+
+    def _relax_sweep_e(self, x, errors, gamma, dt, async_mode):
+        """One relaxation sweep over all error nodes: 2 energy evaluations
+        in async even/odd mode, 1 in synchronous (full Jacobi)."""
+        if async_mode:
+            for parity in (0, 1):
+                self._update_nodes_error_gd(
+                    x, errors, [k for k in range(self.L) if k % 2 == parity],
+                    gamma, dt)
+        else:
+            self._update_nodes_error_gd(x, errors, list(range(self.L)), gamma, dt)
 
     # ------------------------------------------------------------------
     # Spring-clamped EP: free phase, nudge phase, gradient step
@@ -898,20 +873,7 @@ class PCNEnergyModel(nn.Module):
         for step in range(T_free):
             # Inner loop: equilibrate h at current x (τ_h << τ_x)
             for _ in range(K_h):
-                if async_mode:
-                    for parity in [0, 1]:
-                        for k in range(self.L):
-                            if k % 2 != parity:
-                                continue
-                            hiddens[k] = self._update_layer_gd(
-                                x, hiddens, k, gamma, dt
-                            )
-                else:
-                    new_hiddens = [
-                        self._update_layer_gd(x, hiddens, k, gamma, dt)
-                        for k in range(self.L)
-                    ]
-                    hiddens = new_hiddens
+                self._relax_sweep_h(x, hiddens, gamma, dt, async_mode)
 
             # Outer step: update x via ∂E_spring/∂x|_{h fixed}.
             # This computes the PARTIAL derivative ∂E/∂x with h treated as
@@ -1012,20 +974,7 @@ class PCNEnergyModel(nn.Module):
         for step in range(T_nudge):
             # Inner loop: equilibrate h at current x (τ_h << τ_x)
             for _ in range(K_h):
-                if async_mode:
-                    for parity in [0, 1]:
-                        for k in range(self.L):
-                            if k % 2 != parity:
-                                continue
-                            hiddens[k] = self._update_layer_gd(
-                                x, hiddens, k, gamma, dt
-                            )
-                else:
-                    new_hiddens = [
-                        self._update_layer_gd(x, hiddens, k, gamma, dt)
-                        for k in range(self.L)
-                    ]
-                    hiddens = new_hiddens
+                self._relax_sweep_h(x, hiddens, gamma, dt, async_mode)
 
             # Outer step: update x with spring + nudge.
             # Same partial-derivative logic as relax_spring_free (see comment
@@ -1050,7 +999,8 @@ class PCNEnergyModel(nn.Module):
 
 
     def relax_spring_free_errors(self, x_t, gamma, T_free, dt, lambda_spring,
-                                 K_h=1, async_mode=True, init_mode="feedforward"):
+                                 K_h=1, async_mode=True, init_mode="feedforward",
+                                 x_grad_mode="adiabatic"):
         """
         Free phase for spring-clamped EP in error parameterization.
 
@@ -1087,35 +1037,26 @@ class PCNEnergyModel(nn.Module):
         for step in range(T_free):
             # Inner loop: equilibrate errors at current x (τ_h << τ_x)
             for _ in range(K_h):
-                if async_mode:
-                    for parity in [0, 1]:
-                        for k in range(self.L):
-                            if k % 2 != parity:
-                                continue
-                            errors[k] = self._update_error_gd(
-                                x, errors, k, gamma, dt
-                            )
-                else:
-                    new_errors = [
-                        self._update_error_gd(x, errors, k, gamma, dt)
-                        for k in range(self.L)
-                    ]
-                    errors = new_errors
+                self._relax_sweep_e(x, errors, gamma, dt, async_mode)
 
             # Outer step: update x via gradient descent on E_spring.
-            # Modelling choice: reconstruct h from errors with x DETACHED,
-            # computing ∂E/∂x|_{h fixed} (envelope theorem / adiabatic
-            # assumption). This matches the h-param x-update exactly.
-            # Alternative: pass x_grad through _errors_to_hiddens to get the
-            # total derivative dE/dx|_{e fixed}, which is the true gradient
-            # when errors are held constant but differs from h-param when
-            # ∂E/∂h ≠ 0 (i.e. h not fully converged).
-            # TODO should check
-            hiddens_fixed = _errors_to_hiddens(errors, self, x.detach())
-            hiddens_fixed = [h.detach() for h in hiddens_fixed]
+            # x_grad_mode selects the x-gradient of the e-parameterized energy:
+            #  - "adiabatic": reconstruct h from errors with x DETACHED, take
+            #    ∂E/∂x|_{h fixed}. Matches the h-param update but is only exact
+            #    when ∂E/∂h ≈ 0 (h fully equilibrated) — a real bias on deep
+            #    DAGs where K_h inner sweeps cannot equilibrate all nodes.
+            #  - "total": dE/dx|_{e fixed} through the reconstruction scan —
+            #    the exact gradient of E(x, e) at frozen errors; requires NO
+            #    h-equilibrium assumption.
             with torch.enable_grad():
                 x_grad = x.detach().requires_grad_(True)
-                E = self.compute_energy(x_grad, hiddens_fixed, gamma)
+                if x_grad_mode == "total":
+                    E = _compute_energy_from_errors(
+                        [e.detach() for e in errors], self, x_grad, gamma)
+                else:
+                    hiddens_fixed = _errors_to_hiddens(errors, self, x.detach())
+                    hiddens_fixed = [h.detach() for h in hiddens_fixed]
+                    E = self.compute_energy(x_grad, hiddens_fixed, gamma)
                 spring = (lambda_spring / 2.0) * (x_grad - x_detached).pow(2).sum()
                 E_spring = E + spring
                 grad_x = torch.autograd.grad(E_spring, x_grad)[0]
@@ -1166,7 +1107,8 @@ class PCNEnergyModel(nn.Module):
     def relax_spring_nudged_errors(self, x_t, x_star, errors_star, u_target,
                                    beta, T_nudge, gamma, dt, lambda_spring,
                                    output_scale, alpha,
-                                   K_h=1, async_mode=True, nudge_type="quadratic"):
+                                   K_h=1, async_mode=True, nudge_type="quadratic",
+                                   x_grad_mode="adiabatic"):
         """
         Nudge phase for spring-clamped EP in error parameterization.
 
@@ -1195,29 +1137,20 @@ class PCNEnergyModel(nn.Module):
         for step in range(T_nudge):
             # Inner loop: equilibrate errors at current x (τ_h << τ_x)
             for _ in range(K_h):
-                if async_mode:
-                    for parity in [0, 1]:
-                        for k in range(self.L):
-                            if k % 2 != parity:
-                                continue
-                            errors[k] = self._update_error_gd(
-                                x, errors, k, gamma, dt
-                            )
-                else:
-                    new_errors = [
-                        self._update_error_gd(x, errors, k, gamma, dt)
-                        for k in range(self.L)
-                    ]
-                    errors = new_errors
+                self._relax_sweep_e(x, errors, gamma, dt, async_mode)
 
             # Outer step: update x with spring + nudge.
-            # Modelling choice: adiabatic ∂E/∂x|_{h fixed} (see free phase).
-            # TODO should check
-            hiddens_fixed = _errors_to_hiddens(errors, self, x.detach())
-            hiddens_fixed = [h.detach() for h in hiddens_fixed]
+            # x_grad_mode: "adiabatic" ∂E/∂x|_h vs "total" dE/dx|_e — see the
+            # free phase for the trade-off (total needs no h-equilibrium).
             with torch.enable_grad():
                 x_grad = x.detach().requires_grad_(True)
-                E = self.compute_energy(x_grad, hiddens_fixed, gamma)
+                if x_grad_mode == "total":
+                    E = _compute_energy_from_errors(
+                        [e.detach() for e in errors], self, x_grad, gamma)
+                else:
+                    hiddens_fixed = _errors_to_hiddens(errors, self, x.detach())
+                    hiddens_fixed = [h.detach() for h in hiddens_fixed]
+                    E = self.compute_energy(x_grad, hiddens_fixed, gamma)
                 spring = (lambda_spring / 2.0) * (x_grad - x_t_det).pow(2).sum()
                 
                 if nudge_type == "linear":
@@ -1344,9 +1277,23 @@ class PCNVelocityWrapper(nn.Module):
                  n_cg_steps=10, pool_type="avgpool", activation="silu",
                  error_param=False, param_grad_mode="ift",
                  lambda_spring=10.0, beta=0.1, T_nudge=4, thirdphase=True,
-                 K_h=2, nudge_type="quadratic"):
+                 K_h=2, nudge_type="quadratic",
+                 pcn_arch="cnn", unet_kwargs=None,
+                 ep_x_grad_mode="adiabatic"):
         super().__init__()
-        self.pcn = PCNEnergyModel(pool_type=pool_type, activation=activation)
+        # Lazy imports: the architecture modules import PCNEnergyModelBase from
+        # THIS module, so importing them at top level would be circular.
+        if pcn_arch in ("unet", "unet_vit"):
+            # "unet" kept as alias for the ViT version (in-flight runs/resume
+            # legs use it).
+            from network_pcn_unet import PCNUNetEnergyModel
+            self.pcn = PCNUNetEnergyModel(**(unet_kwargs or {}))
+        elif pcn_arch == "cnn":
+            from network_pcn_cnn import PCNCNNEnergyModel
+            self.pcn = PCNCNNEnergyModel(pool_type=pool_type, activation=activation)
+        else:
+            raise ValueError(f"Unknown pcn_arch: {pcn_arch}")
+        self.pcn_arch = pcn_arch
         self.gamma = gamma
         self.alpha = 1.0 / gamma  # v = -output_scale · α · ∂E/∂x; total scale = output_scale/γ
         self.output_scale = output_scale
@@ -1366,33 +1313,39 @@ class PCNVelocityWrapper(nn.Module):
         self.thirdphase = thirdphase
         self.K_h = K_h  # inner h-equilibration steps per x-step (τ_h << τ_x)
         self.nudge_type = nudge_type
+        # x-gradient mode for the e-param spring phases: "adiabatic" ∂E/∂x|_h
+        # (assumes h equilibrated) or "total" dE/dx|_e (exact at frozen errors;
+        # no h-equilibrium assumption — relevant for deep DAGs).
+        self.ep_x_grad_mode = ep_x_grad_mode
 
         # Store latest diagnostics for external access (e.g. W&B logging)
         self._last_diagnostics = None
 
     def potential(self, x, t):
         """
-        Compute scalar potential V(x) ≈ output_scale · F(x) at small γ.
+        Per-sample potential V(x) => (B,), matching the FFN wrappers' contract.
 
-        Specifically: V(x) = output_scale · α · E_int(x, h*, o*)
-                            = output_scale · (1/γ) · E_int
-        At equilibrium, E_int ≈ γ·F(x), so V ≈ output_scale · F(x).
+        V(x) = output_scale · α · E_int(x, h*)  (per sample). At equilibrium
+        E_int ≈ γ·F(x), so V ≈ output_scale · F(x).
 
-        Returns a SCALAR: compute_energy sums over the batch and this divides by
-        B, so the result is the batch-MEAN potential, not a per-sample value.
-        For per-sample scores use potential_per_sample().
+        Grad behaviour: the hidden relaxation is always detached (relax_hiddens
+        returns a detached h*), but the energy is evaluated in the AMBIENT grad
+        context — so this is differentiable in θ and x when the caller has grad
+        enabled (CD energy term; the Langevin negative sampler's ∇_x V), and a
+        plain value under `torch.no_grad()` (logging/generation). By the
+        envelope theorem (∂E/∂h*=0 at equilibrium) the θ- and x-gradients of the
+        detached-h* energy equal the true dV/dθ and dV/dx, so both the CD
+        gradient and the sampler force are correct.
         """
         hiddens, _ = self.pcn.relax_hiddens(
             x, self.gamma, self.K_h, self.dt_relax,
             self.async_mode, self.init_mode
         )
-        with torch.no_grad():
-            E = self.pcn.compute_energy(x, hiddens, self.gamma)
-            V = self.output_scale * self.alpha * E
-            if self.energy_clamp is not None and self.energy_clamp > 0:
-                V = soft_clamp(V, self.energy_clamp)
-            # Normalize by batch size (energy was summed over batch)
-            return V / x.size(0)
+        E = self.pcn.compute_energy_per_sample(x, hiddens, self.gamma)  # (B,)
+        V = self.output_scale * self.alpha * E
+        if self.energy_clamp is not None and self.energy_clamp > 0:
+            V = soft_clamp(V, self.energy_clamp)
+        return V
 
     def velocity(self, x, t, velocity_mode=None):
         """
@@ -1451,7 +1404,8 @@ class PCNVelocityWrapper(nn.Module):
             x_star, eq_state, diag = self.pcn.relax_spring_free_errors(
                 x, gamma, T_free, dt, lam,
                 K_h=self.K_h, async_mode=self.async_mode,
-                init_mode=self.init_mode
+                init_mode=self.init_mode,
+                x_grad_mode=self.ep_x_grad_mode
             )
         else:
             x_star, eq_state, diag = self.pcn.relax_spring_free(
@@ -1511,7 +1465,8 @@ class PCNVelocityWrapper(nn.Module):
                 beta, T_nudge, gamma, dt, lam,
                 self.output_scale, self.alpha,
                 K_h=self.K_h, async_mode=self.async_mode,
-                nudge_type=self.nudge_type
+                nudge_type=self.nudge_type,
+                x_grad_mode=self.ep_x_grad_mode
             )
             if self.thirdphase:
                 # Negative nudge (same free eq, β → -β)
@@ -1520,7 +1475,8 @@ class PCNVelocityWrapper(nn.Module):
                     -beta, T_nudge, gamma, dt, lam,
                     self.output_scale, self.alpha,
                     K_h=self.K_h, async_mode=self.async_mode,
-                    nudge_type=self.nudge_type
+                    nudge_type=self.nudge_type,
+                    x_grad_mode=self.ep_x_grad_mode
                 )
                 ep_loss = self.pcn.ep_gradient_step_errors(
                     x_minus, eq_minus, x_plus, eq_plus,
@@ -1680,14 +1636,12 @@ class PCNVelocityWrapper(nn.Module):
         """
         with torch.enable_grad():
             x_grad = x.clone().detach().requires_grad_(True)
-            # Pure forward pass through all layers
-            h = x_grad
-            for k, layer in enumerate(self.pcn.layers):
-                if k == self.pcn.L - 1:
-                    h = h.view(h.size(0), -1)
-                h = layer(h)
-            # h is now the raw scalar output F(x), shape (B, 1)
-            F_x = h.sum()  # sum over batch for scalar grad target (its only 1 element anyway so this is a trick)
+            # Pure forward pass through the graph (topology-aware, keeps grad)
+            h_list = []
+            for k in range(self.pcn.L):
+                h_list.append(self.pcn.predict(k, x_grad, h_list))
+            # Final node is the raw scalar output F(x), shape (B, 1)
+            F_x = h_list[-1].sum()  # sum over batch for scalar grad target (its only 1 element anyway so this is a trick)
             dFdx = torch.autograd.grad(
                 outputs=F_x,
                 inputs=x_grad,

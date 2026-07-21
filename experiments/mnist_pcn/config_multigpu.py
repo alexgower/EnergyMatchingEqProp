@@ -10,33 +10,106 @@ from absl import flags
 def define_flags():
     FLAGS = flags.FLAGS
 
-    # Model + dataset + output
+    # Run / dataset / IO
     flags.DEFINE_string("model", "EM_mnist_pcn", "Tag for output directory and checkpoint naming")
     flags.DEFINE_string("dataset", "mnist", "Dataset to train on: 'mnist' (28x28)")
     flags.DEFINE_string("output_dir", "./results_mnist_pcn/", "Directory for results")
     flags.DEFINE_bool("debug", False, "Debug mode")
-    flags.DEFINE_string("model_type", "unet_vit",
-                        "Model architecture: 'vgg5' (VGG5 + feedforward backprop), "
-                        "'pcn' (VGG5 + PCN energy relaxation), 'historical' (legacy CNN), "
-                        "'mlp' (pure MLP baseline), 'unet_vit' (UNet + ViT head)")
-    flags.DEFINE_string("pool_type", "avgpool",
-                        "VGG5 downsampling: 'stride_conv' (learned, best for gen), 'avgpool', 'maxpool' (Scellier original)")
-    flags.DEFINE_string("activation", "silu",
-                        "Activation function: 'silu' (smooth ∂V/∂x, recommended) or 'relu' (Scellier original)")
 
-    # Energy Based Model
+    ##########################################################################
+    # MODEL ARCHITECTURE
+    # ------------------------------------------------------------------------
+    # --model_type is a single {paradigm}_{arch} name (see MODEL_REGISTRY at the
+    # bottom of this file for the full valid list). Paradigm = ffn (feedforward
+    # backprop) or pcn (energy-relaxation Predictive Coding). arch = the network
+    # shape. Valid combinations (PCN only exists for two architectures):
+    #   ffn_vgg5        VGG5 conv stack + FC head
+    #   ffn_historical  legacy CNN
+    #   ffn_mlp         pure-MLP baseline
+    #   ffn_unet_vit    torchcfm UNet + patch-ViT scalar head (paper's MNIST arch)
+    #   ffn_unet_mlp    torchcfm UNet + avgpool-MLP head (no ViT)
+    #   ffn_conv_unet   attention-free, norm-free conv UNet (crossbar-native)
+    #   pcn_vgg5        ffn_vgg5's architecture, trained as a PCN (VGG5 CNN, linear chain)
+    #   pcn_unet_vit    ffn_unet_vit's architecture, trained as a PCN (UNet DAG)
+    #
+    # The shape flags below are tagged by the ARCHITECTURE they affect; a tag
+    # applies to BOTH the ffn_<arch> and pcn_<arch> model_types where each exists
+    # (e.g. [unet_vit] covers ffn_unet_vit AND pcn_unet_vit; [vgg5] covers
+    # ffn_vgg5 AND pcn_vgg5). Untagged architectures ignore the flag.
+    ##########################################################################
+    flags.DEFINE_string("model_type", "ffn_unet_vit",
+                        "Network as {paradigm}_{arch}. One of: ffn_vgg5, ffn_historical, "
+                        "ffn_mlp, ffn_unet_vit, ffn_unet_mlp, ffn_conv_unet, pcn_vgg5, "
+                        "pcn_unet_vit (see MODEL_REGISTRY / legend above).")
+
+    # --- Energy head (ALL architectures) ---
+    flags.DEFINE_float("output_scale", 100.0,
+                       "[all] Multiplier on the final scalar potential V(x). (CIFAR-10: 1000.0)")
     flags.DEFINE_float("energy_clamp", None,
-                       "Energy clamp (tanh-based). If None, no clamp is applied.")
-    flags.DEFINE_float("output_scale", 100.0, "Multiplier for final potential output. (CIFAR-10: 1000.0)")
+                       "[all] Tanh soft-clamp on V(x). None = no clamp. NOTE: clamping "
+                       "throttles the FM velocity v=-∇V — leave off for flow matching.")
 
+    # --- CNN-family shape (pool_type also affects conv_unet) ---
+    flags.DEFINE_string("pool_type", "avgpool",
+                        "[vgg5, conv_unet] Downsampling: 'avgpool', "
+                        "'maxpool' (Scellier original), or 'stride_conv' (learned, best "
+                        "for generation). UNet variants use their own down/up-sampling.")
+    flags.DEFINE_string("activation", "silu",
+                        "[vgg5] Activation: 'silu' (smooth ∂V/∂x, recommended) "
+                        "or 'relu' (Scellier original). UNet/conv_unet hardcode SiLU.")
+
+    # --- UNet backbone shape ---
+    flags.DEFINE_integer("num_channels", 32,
+                         "[unet_vit, unet_mlp, conv_unet] Base channels (CIFAR-10: 128).")
+    flags.DEFINE_list("channel_mult", ["1", "2", "2"],
+                      "[unet_vit, unet_mlp, conv_unet] Per-stage channel multipliers.")
+    flags.DEFINE_integer("num_res_blocks", 2,
+                         "[unet_vit, unet_mlp] ResBlocks per stage. "
+                         "(conv_unet uses a fixed 2 conv-blocks per stage.)")
+    flags.DEFINE_integer("num_heads", 2,
+                         "[unet_vit, unet_mlp] UNet self-attention heads.")
+    flags.DEFINE_integer("num_head_channels", 32,
+                         "[unet_vit, unet_mlp] Channels per UNet attention head. This "
+                         "OVERRIDES num_heads in torchcfm (heads = channels // this). At "
+                         "MNIST's 64-channel attention blocks, 32 -> 2 heads as Appendix D "
+                         "states; the CIFAR value 64 would silently give 1 head.")
+    flags.DEFINE_string("attention_resolutions", "14",
+                        "[unet_vit, unet_mlp] Apply UNet attention at these "
+                        "resolution(s). A never-occurring value (e.g. '3') disables it.")
+    flags.DEFINE_float("dropout", 0.1,
+                       "[unet_vit, unet_mlp] UNet/ViT dropout. (pcn_unet_vit forces 0 — a "
+                       "stochastic energy would corrupt relaxation; conv_unet has none.)")
+
+    # --- ViT scalar head shape ---
+    flags.DEFINE_integer("patch_size", 4,
+                         "[unet_vit] ViT patch size on the 28x28 UNet output "
+                         "(28/4 = 7x7 = 49 tokens). Paper-inferred: Figure 7 gives "
+                         "CIFAR 4 and the Appendix D MNIST downscale does not list "
+                         "patch size among what it changed. NOTE checkpoints from "
+                         "runs before 2026-07-21 were trained at 7 (16 tokens) and "
+                         "need --patch_size=7 to load (the patch conv / pos_embed "
+                         "shapes differ, though the total param count does not).")
+    flags.DEFINE_integer("embed_dim", 128,
+                         "[unet_vit] Patch-ViT embedding dimension.")
+    flags.DEFINE_integer("transformer_nheads", 2,
+                         "[unet_vit] ViT encoder attention heads.")
+    flags.DEFINE_integer("transformer_nlayers", 2,
+                         "[unet_vit] ViT encoder layers.")
+
+    # --- conv_unet-only options ---
+    flags.DEFINE_bool("conv_unet_norm", False,
+                      "[conv_unet] Insert GroupNorm after each conv. Sibling of pool_type "
+                      "(a conv_unet sub-choice). Recovers the small-width quality gap but "
+                      "GroupNorm is only partly crossbar-friendly (per-sample statistics).")
 
     # Training
     flags.DEFINE_float("lr", 1e-4, "Learning rate (CIFAR-10: 1.2e-3)")
     flags.DEFINE_float("grad_clip", 1.0, "Gradient norm clipping")
     flags.DEFINE_float("grad_skip_threshold", 0.0,
                        "Skip weight update if pre-clip grad norm exceeds this value. "
-                       "0 = disabled. Useful for IFT-based PCN where outlier batches "
-                       "produce extreme gradients from second-order HVP terms.")
+                       "0 = disabled. NOTE: this is an ABSOLUTE threshold — high-gnorm "
+                       "architectures (e.g. scaled UNet ~75) can silently skip ~every "
+                       "update at the default; prefer 0 and rely on grad_clip.")
     flags.DEFINE_integer("total_steps", 50000, "Total training steps for Phase 1 (CIFAR-10: 145k)")
     flags.DEFINE_integer("warmup", 5000, "Learning rate warmup steps (proportionally scaled from CIFAR-10's 10000)")     # NOTE: warmup not specified in paper for MNIST. Proportionally scaled from CIFAR-10's 10000/145000 ≈ 7% → 5000/50000 = 10%.
     flags.DEFINE_string("lr_decay", "none",
@@ -47,6 +120,11 @@ def define_flags():
     flags.DEFINE_float("ema_decay", 0.999, "EMA decay for Phase 1 (CIFAR-10: 0.9999). Phase 2 uses 0.99.")
     flags.DEFINE_bool("gen_ema", False,
                       "If True, also generate samples from the EMA model at checkpoint steps.")
+    flags.DEFINE_bool("tf32_matmul", True,
+                      "Allow TF32 tensor-core matmuls (attention/Linear layers) on "
+                      "Ampere+. Convolutions already run TF32 by cuDNN default, so "
+                      "this aligns the matmul path with the regime all conv results "
+                      "were computed in. ~1.3-1.5x faster; fp32 accumulation retained.")
 
     # Equilibrium Matching (EqM) objective — alternative to Flow Matching
     flags.DEFINE_string("training_objective", "fm",
@@ -73,7 +151,6 @@ def define_flags():
                        "batch) drops below this. Same norm as EqM paper (threshold=10 on "
                        "ImageNet, scaled to MNIST dims/λ=1). Auto-used for EqM, ignored "
                        "for FM. Set 0 to disable and use gen_t1 instead.")
-
 
     # Weights & Biases
     flags.DEFINE_string("wandb_project", "", "W&B project name. Empty = disable wandb logging.")
@@ -102,7 +179,20 @@ def define_flags():
         "If True, ignore at_data_mask and use the same temperature schedule for all samples",
     )
 
-    # PCN Energy Dynamics (only used with model_type='pcn')
+    ##########################################################################
+    # PCN ENERGY DYNAMICS (only used with the pcn_* model_types)
+    # Relaxation + parameter-gradient method. The PCN *topology* is chosen by
+    # --model_type: pcn_vgg5 = the VGG5 CNN decomposed into 6 PC layers (linear chain);
+    # pcn_unet_vit = DAG over the torchcfm UNet+ViT blocks (one PC node per
+    # block, skips as extra parents; loads ffn_unet_vit checkpoints via
+    # load_from_ebvit for fidelity checks; dropout hard-zeroed inside the PCN).
+    ##########################################################################
+    flags.DEFINE_string("ep_x_grad_mode", "total",
+                        "x-gradient in the e-param spring phases: 'total' (default; dE/dx "
+                        "at e fixed through the reconstruction scan — exact, no "
+                        "h-equilibrium assumption, and free/equal-cost) or 'adiabatic' "
+                        "(dE/dx at h fixed; assumes h equilibrated — biased on deep DAGs "
+                        "at small K_h, kept for ablation).")
     flags.DEFINE_float("pcn_gamma", 0.01,
                        "γ: linear clamp strength on output node. Small γ → exact Energy "
                        "Matching correspondence. α = 1/γ is set automatically.")
@@ -165,19 +255,43 @@ def define_flags():
                         "this is unused (h-relaxation uses K_h directly).")
 
 
-    # UNet + ViT flags (only used with model_type='unet_vit')
-    flags.DEFINE_integer("num_channels", 32, "Base channels (CIFAR-10: 128)")
-    flags.DEFINE_integer("num_res_blocks", 2, "Number of resblocks per stage")
-    flags.DEFINE_integer("num_heads", 2, "Number of attention heads")
-    flags.DEFINE_integer("num_head_channels", 64, "Channels per attention head")
-    flags.DEFINE_float("dropout", 0.1, "Dropout rate")
-    flags.DEFINE_string("attention_resolutions", "14", "Attention at these resolutions")
-    flags.DEFINE_integer("embed_dim", 128, "ViT embedding dimension")
-    flags.DEFINE_integer("transformer_nheads", 2, "ViT heads")
-    flags.DEFINE_integer("transformer_nlayers", 2, "ViT layers")
-    flags.DEFINE_list("channel_mult", ["1", "2", "2"], "UNet channel multipliers")
-
-
-
 def parse_channel_mult(FLAGS):
     return [int(c) for c in FLAGS.channel_mult]
+
+
+# ---------------------------------------------------------------------------
+# model_type registry — single source of truth for the {paradigm}_{arch} names.
+#   model_type      : (paradigm, arch,       pcn_topology)
+# paradigm ∈ {ffn, pcn}; arch = network shape; pcn_topology is the internal
+# PCNVelocityWrapper(pcn_arch=...) value ('cnn'|'unet'), None for ffn.
+# ---------------------------------------------------------------------------
+MODEL_REGISTRY = {
+    "ffn_vgg5":       ("ffn", "vgg5",       None),
+    "ffn_historical": ("ffn", "historical", None),
+    "ffn_mlp":        ("ffn", "mlp",        None),
+    "ffn_unet_vit":   ("ffn", "unet_vit",   None),
+    "ffn_unet_mlp":   ("ffn", "unet_mlp",   None),
+    "ffn_conv_unet":  ("ffn", "conv_unet",  None),
+    "pcn_vgg5":       ("pcn", "vgg5",       "cnn"),
+    "pcn_unet_vit":   ("pcn", "unet_vit",   "unet"),
+}
+
+
+def resolve_model_type(model_type):
+    """Return (paradigm, arch, pcn_topology) for a --model_type value.
+    Raises with a migration hint on the old flat names."""
+    try:
+        return MODEL_REGISTRY[model_type]
+    except KeyError:
+        raise ValueError(
+            f"Unknown --model_type={model_type!r}. Valid: {sorted(MODEL_REGISTRY)}.\n"
+            "Naming is now {paradigm}_{arch}. Migrate old flags: "
+            "unet_vit->ffn_unet_vit, unet_mlp->ffn_unet_mlp, conv_unet->ffn_conv_unet, "
+            "vgg5->ffn_vgg5, historical->ffn_historical, mlp->ffn_mlp, "
+            "'pcn --pcn_arch=chain'->pcn_vgg5, 'pcn --pcn_arch=unet'->pcn_unet_vit."
+        )
+
+
+def is_pcn(model_type):
+    """True if model_type is a PCN paradigm (unknown names -> False, not error)."""
+    return MODEL_REGISTRY.get(model_type, (None,))[0] == "pcn"

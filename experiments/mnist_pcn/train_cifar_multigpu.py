@@ -40,7 +40,7 @@ from utils_mnist import (count_parameters, eqm_c_schedule, generate_and_save,
 
 
 # 3) Import EBM models
-from network_transformer_vit import EBViTModelWrapper
+from network_unet import EBViTModelWrapper, EBMLPModelWrapper, EBConvUNetWrapper
 from network_cnn import EBCNNModelWrapper
 
 # TorchCFM flow classes
@@ -285,8 +285,10 @@ def train_loop(rank, world_size, argv):
     # -----------------------------------------------------------------------
     # 3) Model + DDP
     # -----------------------------------------------------------------------
-    if FLAGS.model_type == "pcn":
-        # Stage 2: PCN energy relaxation velocity
+    paradigm, arch, pcn_topology = config.resolve_model_type(FLAGS.model_type)
+    _clamp = FLAGS.energy_clamp if FLAGS.energy_clamp and FLAGS.energy_clamp > 0 else None
+    if paradigm == "pcn":
+        # Stage 2/3: PCN energy relaxation velocity (topology from model_type).
         from network_pcn import PCNVelocityWrapper
         net_model = PCNVelocityWrapper(
             gamma=FLAGS.pcn_gamma,
@@ -295,7 +297,7 @@ def train_loop(rank, world_size, argv):
             async_mode=FLAGS.pcn_async,
             init_mode=FLAGS.pcn_init_mode,
             output_scale=FLAGS.output_scale,
-            energy_clamp=FLAGS.energy_clamp if FLAGS.energy_clamp and FLAGS.energy_clamp > 0 else None,
+            energy_clamp=_clamp,
             n_cg_steps=FLAGS.pcn_cg_steps,
             pool_type=FLAGS.pool_type,
             activation=FLAGS.activation,
@@ -308,7 +310,24 @@ def train_loop(rank, world_size, argv):
             thirdphase=FLAGS.thirdphase,
             K_h=FLAGS.K_h,
             nudge_type=FLAGS.nudge_type,
+            ep_x_grad_mode=FLAGS.ep_x_grad_mode,
+            pcn_arch=pcn_topology,
+            unet_kwargs=dict(
+                num_channels=FLAGS.num_channels,
+                num_res_blocks=FLAGS.num_res_blocks,
+                channel_mult=config.parse_channel_mult(FLAGS),
+                attention_resolutions=FLAGS.attention_resolutions,
+                num_heads=FLAGS.num_heads,
+                num_head_channels=FLAGS.num_head_channels,
+                patch_size=FLAGS.patch_size,
+                embed_dim=FLAGS.embed_dim,
+                transformer_nheads=FLAGS.transformer_nheads,
+                transformer_nlayers=FLAGS.transformer_nlayers,
+            ) if arch == "unet_vit" else None,
         ).to(device)
+        if arch == "unet_vit":
+            logging.info(f"[PCN] UNet DAG topology: L={net_model.pcn.L} nodes, "
+                         f"parents={net_model.pcn.parents}")
         if FLAGS.pcn_float64:
             net_model = net_model.to(torch.float64)
             logging.info("[PCN] Using float64 for exact gradient correspondence")
@@ -319,33 +338,58 @@ def train_loop(rank, world_size, argv):
             logging.info(f"[PCN] EP mode: λ_spring={FLAGS.lambda_spring}, β={FLAGS.beta}, "
                          f"T_free={FLAGS.T_free}, T_nudge={FLAGS.T_nudge}, "
                          f"thirdphase={FLAGS.thirdphase}, nudge_type={FLAGS.nudge_type}")
-    elif FLAGS.model_type in ("historical", "vgg5", "mlp"):
-        version = FLAGS.model_type
-        net_model = EBCNNModelWrapper(
+    elif arch == "conv_unet":
+        # Attention-free, norm-free conv UNet (crossbar-native multiscale).
+        net_model = EBConvUNetWrapper(
             output_scale=FLAGS.output_scale,
-            energy_clamp=FLAGS.energy_clamp if FLAGS.energy_clamp and FLAGS.energy_clamp > 0 else None,
-            version=version,
+            energy_clamp=_clamp,
+            num_channels=FLAGS.num_channels,
+            channel_mult=config.parse_channel_mult(FLAGS),
             pool_type=FLAGS.pool_type,
-            activation=FLAGS.activation,
+            use_norm=FLAGS.conv_unet_norm,
         ).to(device)
-    else:
-        # Default: UNet + ViT head (paper architecture)
-        ch_mult = config.parse_channel_mult(FLAGS)
+    elif arch == "unet_mlp":
+        # UNet backbone + global-avgpool MLP head -> scalar E(x). With
+        # --attention_resolutions=3 (never-occurring ds) the only attention
+        # left is the hardcoded middle block: the "attention-light multiscale"
+        # ablation for the neuromorphic-architecture question.
+        net_model = EBMLPModelWrapper(
+            dim=(1, 28, 28),
+            num_channels=FLAGS.num_channels,
+            num_res_blocks=FLAGS.num_res_blocks,
+            channel_mult=config.parse_channel_mult(FLAGS),
+            attention_resolutions=FLAGS.attention_resolutions,
+            num_heads=FLAGS.num_heads,
+            num_head_channels=FLAGS.num_head_channels,
+            dropout=FLAGS.dropout,
+            output_scale=FLAGS.output_scale,
+            energy_clamp=_clamp,
+        ).to(device)
+    elif arch == "unet_vit":
+        # UNet + ViT head (paper architecture)
         net_model = EBViTModelWrapper(
             dim=(1, 28, 28),
             num_channels=FLAGS.num_channels,
             num_res_blocks=FLAGS.num_res_blocks,
-            channel_mult=ch_mult,
+            channel_mult=config.parse_channel_mult(FLAGS),
             attention_resolutions=FLAGS.attention_resolutions,
             num_heads=FLAGS.num_heads,
             num_head_channels=FLAGS.num_head_channels,
             dropout=FLAGS.dropout,
             output_scale=FLAGS.output_scale,
             energy_clamp=FLAGS.energy_clamp,
-            patch_size=7,
+            patch_size=FLAGS.patch_size,
             embed_dim=FLAGS.embed_dim,
             transformer_nheads=FLAGS.transformer_nheads,
             transformer_nlayers=FLAGS.transformer_nlayers,
+        ).to(device)
+    else:  # vgg5, historical, mlp
+        net_model = EBCNNModelWrapper(
+            output_scale=FLAGS.output_scale,
+            energy_clamp=_clamp,
+            version=arch,
+            pool_type=FLAGS.pool_type,
+            activation=FLAGS.activation,
         ).to(device)
 
     # If we include the CD loss (lambda_cd > 0) then every parameter is used
@@ -447,6 +491,9 @@ def train_loop(rank, world_size, argv):
     # -----------------------------------------------------------------------
     # 7) Actual Training Loop
     # -----------------------------------------------------------------------
+    if use_cuda and FLAGS.tf32_matmul:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        logging.info("[TF32] matmul TF32 enabled (convs already TF32 via cuDNN default)")
     sdp_ctx = (torch.backends.cuda.sdp_kernel(
         enable_math=True, enable_flash=False, enable_mem_efficient=False
     ) if use_cuda else open("/dev/null"))
@@ -461,7 +508,7 @@ def train_loop(rank, world_size, argv):
             # Grab another batch for CD (independent from flow)
             x_real_cd = next(datalooper).to(device)
             # Cast to float64 if PCN float64 mode
-            if FLAGS.model_type == "pcn" and FLAGS.pcn_float64:
+            if config.is_pcn(FLAGS.model_type) and FLAGS.pcn_float64:
                 x_real_flow = x_real_flow.to(torch.float64)
                 x_real_cd = x_real_cd.to(torch.float64)
 
@@ -475,13 +522,21 @@ def train_loop(rank, world_size, argv):
                 else:
                     is_save_step = (FLAGS.save_step > 0 and step % FLAGS.save_step == 0)
 
-            is_ep_mode = (FLAGS.model_type == "pcn" and FLAGS.param_grad_mode == "ep")
+            is_ep_mode = (config.is_pcn(FLAGS.model_type) and FLAGS.param_grad_mode == "ep")
 
             # Both EP and IFT use forward_all for velocity, flow loss, CD, EqM.
             # In EP mode, velocity() returns detached spring displacement (no graph).
             # In IFT mode, velocity() returns grad-tracked output (create_graph=True).
+            # EP does ALL its gradient work manually on raw_model (nudge phases +
+            # CD energy backward) and syncs via the explicit all_reduce below, so
+            # it runs forward_all on the UNWRAPPED model — this keeps CD's backward
+            # off DDP's hooks (else the manual all_reduce would double-average it)
+            # and avoids DDP's one-forward-one-backward expectation. IFT uses the
+            # DDP model so total_loss.backward() auto-syncs. (raw_model == net_model
+            # at world_size=1, so this is a no-op there.)
+            fwd_model = raw_model if is_ep_mode else net_model
             total_loss, flow_loss, cd_loss, pos_energy, neg_energy, vt_mag, ut_mag, ut, t, vt = forward_all(
-                model=net_model,
+                model=fwd_model,
                 flow_matcher=flow_matcher,
                 x_real_flow=x_real_flow,
                 x_real_cd=x_real_cd,
@@ -500,16 +555,36 @@ def train_loop(rank, world_size, argv):
                 # .backward() and instead compute EP gradients from the cached
                 # free-phase equilibrium.
                 ep_diag = raw_model.compute_ep_gradients(ut)
-                # Phase-2 CD: EP handles the flow/velocity gradient (its purpose);
-                # the contrastive-divergence term is a standard scalar-energy EBM
-                # loss (energy VALUES, not gradients), so apply it by normal
-                # backprop ON TOP of the EP gradient (grad already zeroed at
-                # optim.zero_grad() above; cd_loss is grad-tracked in theta).
-                # TODO check everything is fine later
+                # Phase-2 CD (contrastive divergence) ON TOP of the EP gradient.
+                # The CD term needs ∂E/∂θ at the data and negative points. For a
+                # PCN that is the envelope-theorem gradient: relax h*, detach it,
+                # differentiate the energy w.r.t. θ — which the grad-capable,
+                # per-sample potential() now provides (cd_loss is grad-tracked in
+                # θ through raw_model, so this backward writes into param.grad
+                # alongside the EP gradient, exactly as for an FFN EBM). The
+                # negatives were drawn by the Langevin sampler using that same
+                # per-sample ∇_x V. Grad was zeroed at optim.zero_grad() above.
                 if FLAGS.lambda_cd > 0.0:
                     cd_loss.backward()
+                # Multi-GPU: BOTH the EP gradient (compute_ep_gradients) and the
+                # CD gradient (cd_loss.backward, on raw_model — off DDP's hooks)
+                # are manual backwards that DDP never sees, so we average them
+                # across ranks here. No-op at world_size=1.
+                if world_size > 1:
+                    for p in raw_model.parameters():
+                        if p.grad is not None:
+                            dist.all_reduce(p.grad, op=dist.ReduceOp.AVG)
             else:
-                # IFT / feedforward: standard backprop through total_loss
+                # IFT-PCN and all FFN models. Unlike EP, velocity() here returns a
+                # GRAD-TRACKED output (FFN: v=-∇V with create_graph; IFT-PCN: the
+                # equilibrium wrapped in the IFTEquilibrium{Hiddens,Errors} autograd
+                # Function that supplies ∂/∂θ via the CG solve). So total_loss
+                # (= flow_loss + cd_loss) carries a full graph and ONE standard
+                # backward fills every param.grad. This runs through net_model — the
+                # DDP wrapper on multi-GPU — so DDP's hooks fire and average
+                # gradients across ranks automatically. That is why this branch
+                # needs NO manual all_reduce (contrast the EP branch above, which
+                # runs on raw_model to avoid DDP and syncs by hand).
                 total_loss.backward()
 
             if step == start_step:
@@ -604,7 +679,7 @@ def train_loop(rank, world_size, argv):
                 )
 
                 # PCN per-step diagnostics (max|e|, max|dE/de|, v_cos)
-                if FLAGS.model_type == "pcn":
+                if config.is_pcn(FLAGS.model_type):
                     log_pcn_step_diagnostics(
                         raw_model, step, log_dict,
                         data_batch=x_real_flow, v_cos_every=500,

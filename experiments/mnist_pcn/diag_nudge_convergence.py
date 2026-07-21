@@ -1,8 +1,9 @@
 """Diagnostic: check nudge phase convergence at various T_nudge / beta."""
 import sys, torch, json
 sys.path.insert(0, '.')
-from network_pcn import (PCNVelocityWrapper, PCNEnergyModel,
+from network_pcn import (PCNVelocityWrapper,
                           _errors_to_hiddens, _compute_energy_from_errors)
+from network_pcn_cnn import PCNCNNEnergyModel as PCNEnergyModel  # VGG5 CNN chain model
 
 def measure_nudge_residuals(model, x, ut, T_nudge_val, beta_val):
     """Run EP with given T_nudge/beta, return convergence metrics."""
