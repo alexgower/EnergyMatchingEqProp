@@ -4,15 +4,30 @@
 # interface:
 #   EBViTModelWrapper   torchcfm UNet + patch-ViT scalar head  (model_type=unet_vit)
 #   EBMLPModelWrapper   torchcfm UNet + avgpool-MLP head        (model_type=unet_mlp)
-#   EBConvUNetWrapper   from-scratch attention/norm-free conv UNet (model_type=conv_unet)
-# (Renamed from network_transformer_vit.py; EBConvUNetWrapper merged in from the
+#   EBRonnebergerConvUNetWrapper
+#                       from-scratch conv UNet, RONNEBERGER-style connectivity
+#                       (model_type=ffn_ronneberger_conv_unet)
+#
+# NOTE the two UNet lineages here are NOT the same architecture. The torchcfm
+# backbone above is the DDPM/diffusion UNet (Ho et al.): every encoder block
+# pushes a skip onto a stack and EVERY decoder block pops one (9 skips for the
+# MNIST config), pre-activation ResBlocks, zero-init second conv, GroupNorm
+# throughout, learned conv down/up-sampling. The conv UNet below is the classic
+# Ronneberger (2015) U-Net: ONE skip per RESOLUTION LEVEL (2 here). Renamed
+# 2026-07-21 to stop the two being conflated.
+#
+# To ablate attention/normalization, prefer stripping them from the torchcfm
+# backbone (--unet_no_attention / --unet_no_norm) over comparing against the
+# Ronneberger net: stripping varies ONE axis on the SAME code path, whereas a
+# cross-family comparison varies many at once.
+# (Renamed from network_transformer_vit.py; the conv UNet merged in from the
 # former network_unet_connectivity.py.)
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torchcfm.models.unet.unet import UNetModelWrapper
+from torchcfm.models.unet.unet import UNetModelWrapper, AttentionBlock
 
 ##############################################################################
 # Simple Patch Embedding (like in ViT)
@@ -102,6 +117,55 @@ def dummy_time(x, value=0.5):
 
 
 ##############################################################################
+# Crossbar-native ablations: strip attention / normalization in place
+##############################################################################
+def _replace_all(root, predicate, factory):
+    """Swap every submodule satisfying `predicate` for `factory()`. Returns count.
+
+    Operates on the ALREADY-BUILT module tree rather than on constructor args,
+    which is what makes the guarantee airtight: whatever torchcfm chose to
+    build, these ops are gone afterwards (their parameters go with them).
+    """
+    n = 0
+    for parent in root.modules():
+        for name, child in list(parent.named_children()):
+            if predicate(child):
+                setattr(parent, name, factory())
+                n += 1
+    return n
+
+
+def strip_attention(model):
+    """Remove EVERY AttentionBlock, leaving convs/skips only.
+
+    NB this is NOT achievable with --attention_resolutions alone: that flag
+    controls the encoder/decoder stages, but UNetModel hardcodes the middle
+    block as ResBlock -> AttentionBlock -> ResBlock, so one attention block
+    always survives. AttentionBlock is not a TimestepBlock, so
+    TimestepEmbedSequential calls the replacement Identity as layer(x) -- the
+    substitution is shape- and signature-safe.
+    """
+    return _replace_all(model, lambda m: isinstance(m, AttentionBlock), nn.Identity)
+
+
+def strip_norm(model):
+    """Remove EVERY GroupNorm (36 of them in the MNIST config).
+
+    Leaves an architecture whose every op is an MVM (conv / linear), a fixed
+    fan-out (nearest upsample), a wiring op (concat / residual add) or an
+    elementwise nonlinearity -- i.e. analog-crossbar-native. The constant
+    t=0.5 time embedding stays, but it is a FIXED per-channel bias and folds
+    into the preceding conv's bias at inference, so it costs no hardware.
+
+    Stability caveat: a deep pre-activation ResNet with no normalization can
+    diverge. torchcfm's zero-init second conv + always-on residual make each
+    block start as the identity, which is what makes this survivable -- but it
+    is not guaranteed, so smoke-test before spending a full run.
+    """
+    return _replace_all(model, lambda m: isinstance(m, nn.GroupNorm), nn.Identity)
+
+
+##############################################################################
 # 1) EBM with a patch-based ViT head
 ##############################################################################
 class EBViTModelWrapper(UNetModelWrapper):
@@ -152,6 +216,9 @@ class EBViTModelWrapper(UNetModelWrapper):
         # --- Energy model parameters ---
         output_scale=100.0,        # Multiplier for scalar energy V(x). CIFAR-10: 1000.0 (more pixels → larger energies)
         energy_clamp=None,         # Tanh-based soft clamp on V(x). None = no clamping
+        # --- crossbar-native ablations (see strip_attention / strip_norm) ---
+        no_attention=False,        # Drop ALL attention, incl. the hardcoded middle block
+        no_norm=False,             # Drop ALL GroupNorm -> every op is an MVM/wiring op
         **kwargs
     ):
         super().__init__(
@@ -172,6 +239,13 @@ class EBViTModelWrapper(UNetModelWrapper):
             use_new_attention_order=use_new_attention_order,
             **kwargs
         )
+
+        # Applied to the BUILT tree, so the guarantee holds regardless of how
+        # attention_resolutions was interpreted (see strip_attention docstring).
+        if no_attention:
+            strip_attention(self)
+        if no_norm:
+            strip_norm(self)
 
         self.out_channels = dim[0]
         self.output_scale = output_scale
@@ -286,6 +360,8 @@ class EBMLPModelWrapper(UNetModelWrapper):
         # --- Energy model parameters ---
         output_scale=100.0,        # Multiplier for scalar energy V(x)
         energy_clamp=None,         # Tanh-based soft clamp on V(x). None = no clamping
+        no_attention=False,        # Drop ALL attention, incl. the hardcoded middle block
+        no_norm=False,             # Drop ALL GroupNorm -> every op is an MVM/wiring op
         **kwargs
     ):
         super().__init__(
@@ -306,6 +382,13 @@ class EBMLPModelWrapper(UNetModelWrapper):
             use_new_attention_order=use_new_attention_order,
             **kwargs
         )
+
+        # Applied to the BUILT tree, so the guarantee holds regardless of how
+        # attention_resolutions was interpreted (see strip_attention docstring).
+        if no_attention:
+            strip_attention(self)
+        if no_norm:
+            strip_norm(self)
 
         self.out_channels = dim[0]
         self.output_scale = output_scale
@@ -368,10 +451,12 @@ class EBMLPModelWrapper(UNetModelWrapper):
 
 
 ##############################################################################
-# 3) Attention-free, NORM-free conv UNet (crossbar-native)
-#    NOTE: unlike EBViT/EBMLP above (which wrap the torchcfm UNet), this is a
-#    from-scratch conv UNet — no torchcfm dependency, no attention, no norm
+# 3) Attention-free, NORM-free RONNEBERGER conv UNet (crossbar-native)
+#    NOTE: unlike EBViT/EBMLP above (which wrap the torchcfm/DDPM UNet), this is
+#    a from-scratch conv UNet — no torchcfm dependency, no attention, no norm
 #    (unless --conv_unet_norm). Every op maps to analog matrix-vector mult.
+#    Its connectivity is Ronneberger-style (1 skip per resolution level), NOT
+#    the DDPM stack-based 9-skip scheme — hence the name.
 #    Reuses soft_clamp defined above.
 ##############################################################################
 def _norm(channels, use_norm):
@@ -410,11 +495,26 @@ def make_down(channels, pool_type):
     elif pool_type == "stride_conv":
         return nn.Conv2d(channels, channels, kernel_size=4, stride=2, padding=1)
     else:
-        raise ValueError(f"conv_unet supports 'avgpool' or 'stride_conv', got {pool_type}")
+        raise ValueError(f"ronneberger_conv_unet supports 'avgpool' or 'stride_conv', got {pool_type}")
 
 
-class ConvUNetEnergy(nn.Module):
-    """Attention-free, norm-free UNet-connectivity scalar energy V(x)."""
+class RonnebergerConvUNetEnergy(nn.Module):
+    """Attention-free, norm-free RONNEBERGER-style U-Net scalar energy V(x).
+
+    Connectivity is the classic Ronneberger (2015) U-Net: ONE skip per
+    resolution level (2 here: 28 and 14). This is deliberately NOT the
+    torchcfm/DDPM backbone above, which carries 9 skips (one per block),
+    pre-activation ResBlocks with zero-init second convs, GroupNorm
+    throughout, and learned conv down/up-sampling. Other differences: this
+    net is post-activation, drops the residual entirely when channel count
+    changes (rather than inserting a 1x1 conv), has no time-embedding bias,
+    and upsamples with bare nearest-neighbour interpolation (no conv after).
+
+    Consequence: it is an INDEPENDENT architecture family, not "the UNet
+    minus attention". A cross-family comparison therefore varies many axes
+    at once -- for a single-axis attention/norm ablation use the torchcfm
+    backbone with --unet_no_attention / --unet_no_norm instead.
+    """
 
     def __init__(self, in_channels=1, num_channels=32, channel_mult=(1, 2, 2),
                  pool_type="avgpool", use_norm=False):
@@ -451,14 +551,14 @@ class ConvUNetEnergy(nn.Module):
         return self.head_fc2(h)                              # (B,1) raw scalar
 
 
-class EBConvUNetWrapper(nn.Module):
+class EBRonnebergerConvUNetWrapper(nn.Module):
     """Same interface as EBCNNModelWrapper: potential/velocity/forward."""
 
     def __init__(self, output_scale=100.0, energy_clamp=None,
                  num_channels=32, channel_mult=(1, 2, 2), pool_type="avgpool",
                  use_norm=False):
         super().__init__()
-        self.net = ConvUNetEnergy(num_channels=num_channels,
+        self.net = RonnebergerConvUNetEnergy(num_channels=num_channels,
                                   channel_mult=channel_mult,
                                   pool_type=pool_type, use_norm=use_norm)
         self.output_scale = output_scale

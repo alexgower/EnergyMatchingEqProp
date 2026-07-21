@@ -83,7 +83,8 @@ class PCNUNetEnergyModel(PCNEnergyModelBase):
     def __init__(self, num_channels=32, num_res_blocks=2, channel_mult=(1, 2, 2),
                  attention_resolutions="14", num_heads=2, num_head_channels=32,
                  embed_dim=128, transformer_nheads=2, transformer_nlayers=2,
-                 patch_size=4, dim=(1, 28, 28)):
+                 patch_size=4, dim=(1, 28, 28),
+                 no_attention=False, no_norm=False):
         # Skip the engine base's setup (there is none) and build UNet blocks.
         nn.Module.__init__(self)
 
@@ -103,6 +104,7 @@ class PCNUNetEnergyModel(PCNEnergyModelBase):
             transformer_nheads=transformer_nheads,
             transformer_nlayers=transformer_nlayers,
             output_scale=1.0, energy_clamp=None,
+            no_attention=no_attention, no_norm=no_norm,
         )
 
         # ---- adopt modules as prediction functions (topological order) ----

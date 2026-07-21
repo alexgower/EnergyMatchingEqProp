@@ -76,7 +76,8 @@ flags.DEFINE_string("langevin_tau_s", "0",
 
 # Import models
 from network_cnn import EBCNNModelWrapper
-from network_unet import EBViTModelWrapper, EBMLPModelWrapper, EBConvUNetWrapper
+from network_unet import (EBViTModelWrapper, EBMLPModelWrapper,
+                          EBRonnebergerConvUNetWrapper)
 from network_pcn import PCNVelocityWrapper
 from utils import gibbs_sampling_time_sweep
 
@@ -166,13 +167,15 @@ def build_model(device):
                 num_heads=FLAGS.num_heads,
                 num_head_channels=FLAGS.num_head_channels,
                 patch_size=FLAGS.patch_size,
+                no_attention=FLAGS.unet_no_attention,
+                no_norm=FLAGS.unet_no_norm,
                 embed_dim=FLAGS.embed_dim,
                 transformer_nheads=FLAGS.transformer_nheads,
                 transformer_nlayers=FLAGS.transformer_nlayers,
             ) if arch == "unet_vit" else None,
         ).to(device)
-    elif arch == "conv_unet":
-        model = EBConvUNetWrapper(
+    elif arch == "ronneberger_conv_unet":
+        model = EBRonnebergerConvUNetWrapper(
             output_scale=FLAGS.output_scale,
             energy_clamp=_clamp,
             num_channels=FLAGS.num_channels,
@@ -190,6 +193,8 @@ def build_model(device):
             num_heads=FLAGS.num_heads,
             num_head_channels=FLAGS.num_head_channels,
             dropout=FLAGS.dropout,
+            no_attention=FLAGS.unet_no_attention,
+            no_norm=FLAGS.unet_no_norm,
             output_scale=FLAGS.output_scale,
             energy_clamp=_clamp,
         ).to(device)
@@ -213,6 +218,8 @@ def build_model(device):
             output_scale=FLAGS.output_scale,
             energy_clamp=FLAGS.energy_clamp,
             patch_size=FLAGS.patch_size,
+            no_attention=FLAGS.unet_no_attention,
+            no_norm=FLAGS.unet_no_norm,
             embed_dim=FLAGS.embed_dim,
             transformer_nheads=FLAGS.transformer_nheads,
             transformer_nlayers=FLAGS.transformer_nlayers,

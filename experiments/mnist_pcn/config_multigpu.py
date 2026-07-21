@@ -28,7 +28,10 @@ def define_flags():
     #   ffn_mlp         pure-MLP baseline
     #   ffn_unet_vit    torchcfm UNet + patch-ViT scalar head (paper's MNIST arch)
     #   ffn_unet_mlp    torchcfm UNet + avgpool-MLP head (no ViT)
-    #   ffn_conv_unet   attention-free, norm-free conv UNet (crossbar-native)
+    #   ffn_ronneberger_conv_unet
+    #                   attention-free, norm-free Ronneberger-style conv UNet
+    #                   (crossbar-native; 1 skip per resolution level, NOT the
+    #                   torchcfm/DDPM 9-skip backbone). "ffn_conv_unet" still works.
     #   pcn_vgg5        ffn_vgg5's architecture, trained as a PCN (VGG5 CNN, linear chain)
     #   pcn_unet_vit    ffn_unet_vit's architecture, trained as a PCN (UNet DAG)
     #
@@ -96,10 +99,25 @@ def define_flags():
     flags.DEFINE_integer("transformer_nlayers", 2,
                          "[unet_vit] ViT encoder layers.")
 
-    # --- conv_unet-only options ---
+    # --- crossbar-native ablations on the torchcfm UNet backbone ---
+    flags.DEFINE_bool("unet_no_attention", False,
+                      "[unet_vit, unet_mlp] Remove EVERY attention block. NOTE this is "
+                      "NOT the same as --attention_resolutions: that only controls the "
+                      "encoder/decoder stages, while UNetModel HARDCODES the middle block "
+                      "as ResBlock->Attention->ResBlock, so one attention block always "
+                      "survives it. Use this flag for a genuinely attention-free net.")
+    flags.DEFINE_bool("unet_no_norm", False,
+                      "[unet_vit, unet_mlp] Remove EVERY GroupNorm (36 in the MNIST "
+                      "config). With --unet_no_attention this leaves an architecture "
+                      "whose every op is an MVM, a fixed fan-out, a wiring op or an "
+                      "elementwise nonlinearity, i.e. analog-crossbar-native -- the "
+                      "single-axis version of the ronneberger_conv_unet comparison. "
+                      "May destabilize training; smoke-test first.")
+
+    # --- ronneberger_conv_unet-only options ---
     flags.DEFINE_bool("conv_unet_norm", False,
-                      "[conv_unet] Insert GroupNorm after each conv. Sibling of pool_type "
-                      "(a conv_unet sub-choice). Recovers the small-width quality gap but "
+                      "[ronneberger_conv_unet] Insert GroupNorm after each conv. Sibling of "
+                      "pool_type. Recovers the small-width quality gap but "
                       "GroupNorm is only partly crossbar-friendly (per-sample statistics).")
 
     # Training
@@ -271,7 +289,11 @@ MODEL_REGISTRY = {
     "ffn_mlp":        ("ffn", "mlp",        None),
     "ffn_unet_vit":   ("ffn", "unet_vit",   None),
     "ffn_unet_mlp":   ("ffn", "unet_mlp",   None),
-    "ffn_conv_unet":  ("ffn", "conv_unet",  None),
+    "ffn_ronneberger_conv_unet": ("ffn", "ronneberger_conv_unet", None),
+    # Deprecated alias kept working on purpose: submit scripts and in-flight
+    # multi-leg jobs still pass the old name, and each leg re-imports this file.
+    # TODO delete this soon
+    "ffn_conv_unet":  ("ffn", "ronneberger_conv_unet",  None),
     "pcn_vgg5":       ("pcn", "vgg5",       "cnn"),
     "pcn_unet_vit":   ("pcn", "unet_vit",   "unet"),
 }

@@ -40,7 +40,8 @@ from utils_mnist import (count_parameters, eqm_c_schedule, generate_and_save,
 
 
 # 3) Import EBM models
-from network_unet import EBViTModelWrapper, EBMLPModelWrapper, EBConvUNetWrapper
+from network_unet import (EBViTModelWrapper, EBMLPModelWrapper,
+                          EBRonnebergerConvUNetWrapper)
 from network_cnn import EBCNNModelWrapper
 
 # TorchCFM flow classes
@@ -320,6 +321,8 @@ def train_loop(rank, world_size, argv):
                 num_heads=FLAGS.num_heads,
                 num_head_channels=FLAGS.num_head_channels,
                 patch_size=FLAGS.patch_size,
+                no_attention=FLAGS.unet_no_attention,
+                no_norm=FLAGS.unet_no_norm,
                 embed_dim=FLAGS.embed_dim,
                 transformer_nheads=FLAGS.transformer_nheads,
                 transformer_nlayers=FLAGS.transformer_nlayers,
@@ -338,9 +341,9 @@ def train_loop(rank, world_size, argv):
             logging.info(f"[PCN] EP mode: λ_spring={FLAGS.lambda_spring}, β={FLAGS.beta}, "
                          f"T_free={FLAGS.T_free}, T_nudge={FLAGS.T_nudge}, "
                          f"thirdphase={FLAGS.thirdphase}, nudge_type={FLAGS.nudge_type}")
-    elif arch == "conv_unet":
+    elif arch == "ronneberger_conv_unet":
         # Attention-free, norm-free conv UNet (crossbar-native multiscale).
-        net_model = EBConvUNetWrapper(
+        net_model = EBRonnebergerConvUNetWrapper(
             output_scale=FLAGS.output_scale,
             energy_clamp=_clamp,
             num_channels=FLAGS.num_channels,
@@ -362,6 +365,8 @@ def train_loop(rank, world_size, argv):
             num_heads=FLAGS.num_heads,
             num_head_channels=FLAGS.num_head_channels,
             dropout=FLAGS.dropout,
+            no_attention=FLAGS.unet_no_attention,
+            no_norm=FLAGS.unet_no_norm,
             output_scale=FLAGS.output_scale,
             energy_clamp=_clamp,
         ).to(device)
@@ -379,6 +384,8 @@ def train_loop(rank, world_size, argv):
             output_scale=FLAGS.output_scale,
             energy_clamp=FLAGS.energy_clamp,
             patch_size=FLAGS.patch_size,
+            no_attention=FLAGS.unet_no_attention,
+            no_norm=FLAGS.unet_no_norm,
             embed_dim=FLAGS.embed_dim,
             transformer_nheads=FLAGS.transformer_nheads,
             transformer_nlayers=FLAGS.transformer_nlayers,
