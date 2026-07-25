@@ -304,6 +304,17 @@ def train_loop(rank, world_size, argv):
         start_step = checkpoint_data["step"]
         if rank == 0:
             logging.info(f"[Rank 0] Resumed at step={start_step}")
+        # Resume restores the checkpoint's LR into optim+sched, which silently
+        # overrides --lr. resume_lr_override re-forces it (needed to run Phase-2
+        # CD below the Phase-1 LR). warmup_lr(step>warmup)=1.0 so effective LR
+        # equals base_lr; we set both the live param-group lr and sched.base_lrs.
+        if FLAGS.resume_lr_override > 0.0:
+            for pg in optim.param_groups:
+                pg["lr"] = FLAGS.resume_lr_override
+                pg["initial_lr"] = FLAGS.resume_lr_override
+            sched.base_lrs = [FLAGS.resume_lr_override] * len(sched.base_lrs)
+            if rank == 0:
+                logging.info(f"[Rank 0] resume_lr_override -> LR={FLAGS.resume_lr_override}")
 
     # -----------------------------------------------------------------------
     # 6) Setup flow matcher, etc.

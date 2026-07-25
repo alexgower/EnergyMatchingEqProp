@@ -49,6 +49,11 @@ def define_flags():
     # Evaluation / Saving
     flags.DEFINE_integer("save_step", 5000, "Checkpoint save frequency (0=disable)")
     flags.DEFINE_string("resume_ckpt", "", "Path to checkpoint for resuming training")
+    flags.DEFINE_float("resume_lr_override", 0.0,
+                       "If >0, force optimizer+scheduler LR to this value AFTER a "
+                       "resume. Without it, optim/sched.load_state_dict restore the "
+                       "checkpoint's LR and --lr is SILENTLY IGNORED on resume. "
+                       "Needed to run Phase-2 CD at a lower LR than Phase-1.")
 
     # EBM + CD
     flags.DEFINE_float("epsilon_max", 0.0, "Max step size in Gibbs sampling")
