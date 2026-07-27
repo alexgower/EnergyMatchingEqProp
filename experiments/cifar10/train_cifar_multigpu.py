@@ -28,6 +28,7 @@ from utils_cifar_imagenet import (
     create_timestamped_dir,
     generate_samples,
     flow_weight,
+    eqm_c_schedule,
     gibbs_sampling_time_sweep,
     warmup_lr,
     ema,
@@ -86,9 +87,18 @@ def forward_all(model,
     x0_flow = torch.randn_like(x_real_flow)
     t, xt, ut = flow_matcher.sample_location_and_conditional_flow(x0_flow, x_real_flow)
 
+    # EqM objective (Wang & Du, arXiv:2510.02300): rescale the FM target by
+    # lambda*c(t) so the learned field vanishes AT the data manifold (data become
+    # equilibria; converged sampling, no CD needed). torchcfm's t == EqM's gamma.
+    # 3-line port from the mnist_pcn tree; FM path below is byte-unchanged.
+    if FLAGS.training_objective == "eqm":
+        c_gamma = eqm_c_schedule(t, FLAGS.eqm_c_type, FLAGS.eqm_a, FLAGS.eqm_b)
+        ut = ut * (FLAGS.eqm_lambda * c_gamma).view(-1, 1, 1, 1)
+
     vt = model(t, xt)  # calls forward() in EBViTModelWrapper
     flow_mse = (vt - ut).square()
-    w_flow = flow_weight(t, cutoff=time_cutoff) # Linear ramping down of flow weight in line with linear ramping up of epsilon
+    w_flow = torch.ones_like(t) if FLAGS.training_objective == "eqm" \
+        else flow_weight(t, cutoff=time_cutoff) # Linear ramping down of flow weight in line with linear ramping up of epsilon
     flow_loss = torch.mean(w_flow * flow_mse.mean(dim=[1, 2, 3]))
 
     # ----------------------------------------------------------

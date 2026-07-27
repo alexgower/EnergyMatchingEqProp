@@ -464,6 +464,20 @@ def generate_gibbs_diagnostic_plot(
 ##############################################################################
 # Helpers for training
 ##############################################################################
+def eqm_c_schedule(gamma, c_type, a=0.8, b=1.0):
+    """EqM (Wang & Du, arXiv:2510.02300) target scaling c(gamma); c(1)=0 makes
+    data points equilibria of the learned field. Ported from mnist_pcn."""
+    import torch
+    if c_type == "linear":
+        return 1.0 - gamma
+    elif c_type == "truncated":
+        return torch.where(gamma <= a, torch.ones_like(gamma), (1.0 - gamma) / (1.0 - a))
+    elif c_type == "piecewise":
+        return torch.where(gamma <= a, b - (b - 1.0) / a * gamma, (1.0 - gamma) / (1.0 - a))
+    else:
+        raise ValueError(f"Unknown eqm_c_type: {c_type}")
+
+
 def flow_weight(t, cutoff=0.8):
     """
     Flow weighting function:

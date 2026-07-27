@@ -6,3 +6,7 @@ data/
 old_good_results/
 __pycache__/
 FlowEqProp/
+submit_*
+submit_scripts/
+results*
+checkpoints_authors*

@@ -56,6 +56,19 @@ def define_flags():
                        "Needed to run Phase-2 CD at a lower LR than Phase-1.")
 
     # EBM + CD
+    # --- Equilibrium Matching objective (Wang & Du) — ported from mnist_pcn ---
+    flags.DEFINE_string("training_objective", "fm",
+                        "'fm' (Energy Matching L_OT, default) or 'eqm' (target scaled "
+                        "by eqm_lambda*c(t) so velocity -> 0 AT data; converged sampling).")
+    flags.DEFINE_string("eqm_c_type", "linear",
+                        "[eqm] c(gamma): 'linear' (1-g), 'truncated' (1 until a, then decay), "
+                        "'piecewise' (b at 0 -> 1 at a -> 0 at 1).")
+    flags.DEFINE_float("eqm_a", 0.8, "[eqm] truncation point for truncated/piecewise.")
+    flags.DEFINE_float("eqm_b", 1.0, "[eqm] start value for piecewise.")
+    flags.DEFINE_float("eqm_lambda", 1.0,
+                       "[eqm] global gradient multiplier (EqM paper's best on their "
+                       "vector-field UNet was 4.0 with truncated a=0.8; untested on "
+                       "our scalar-V arch).")
     flags.DEFINE_float("epsilon_max", 0.0, "Max step size in Gibbs sampling")
     flags.DEFINE_float("dt_gibbs", 0.01, "Step size for Gibbs sampling")
     flags.DEFINE_integer("n_gibbs", 0, "Number of Gibbs steps")
