@@ -1,0 +1,406 @@
+#!/usr/bin/env python3
+"""
+Generate images from a saved checkpoint with configurable generation parameters.
+
+Supports two generation modes:
+  - Fixed-time integration: ODE from t=0 to t=t1 (sweep dt and t1).
+    Extending t1 > 1.0 compensates for the systematic v_mag undershoot
+    caused by MSE-optimal magnitude reduction.
+  - Convergence-based: Iterate until velocity norm < threshold (for EqM models).
+
+Integrators:
+  - euler: First-order Euler step. Fast (1 model eval/step).
+  - heun:  Second-order Heun's method. More accurate (2 model evals/step).
+
+Usage examples:
+  # Default generation (fixed t1=1.0, dt=0.01, euler)
+  python generate_from_checkpoint.py \
+      --ckpt=results_cifar10_pcn/EM_cifar10_pcn_.../checkpoint_145000.pt
+
+  # Heun integrator with sweep
+  python generate_from_checkpoint.py \
+      --ckpt=path/to/checkpoint.pt \
+      --integrator=heun \
+      --gen_t1_sweep=1.0,1.1 --gen_dt_sweep=0.01,0.005
+
+  # Convergence-based (EqM) with Heun
+  python generate_from_checkpoint.py \
+      --ckpt=path/to/checkpoint.pt \
+      --integrator=heun --gen_converge_threshold=2.0 --use_ema
+"""
+
+import os
+import sys
+import torch
+import math
+from datetime import datetime
+
+from absl import app, flags, logging
+import config_multigpu as config
+
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+)
+
+config.define_flags()
+FLAGS = flags.FLAGS
+
+# Generation-specific flags (supplements shared config flags)
+flags.DEFINE_string("ckpt", "", "Path to checkpoint file (required)")
+flags.DEFINE_string("gen_output_dir", "", "Output directory (default: same as checkpoint's training run folder)")
+flags.DEFINE_string("gen_t1_sweep", "1.0",
+                    "Comma-separated integration endpoints (e.g. '1.0,1.5,2.0'). "
+                    "Ignored when gen_converge_threshold > 0 (convergence finds its own endpoint).")
+flags.DEFINE_string("gen_dt_sweep", "0.01",
+                    "Comma-separated dt values (e.g. '0.01,0.005'). Used in both fixed-t1 and convergence modes.")
+flags.DEFINE_integer("n_samples", 64, "Number of samples to generate per config")
+flags.DEFINE_string("integrator", "heun",
+                    "ODE integrator: 'euler' (1st order, 1 eval/step) or "
+                    "'heun' (2nd order, 2 evals/step, more accurate). Default: heun.")
+flags.DEFINE_bool("use_ema", False, "Also generate with EMA model weights")
+flags.DEFINE_bool("use_normal", True, "Use non-EMA model weights (default)")
+flags.DEFINE_string("velocity_modes", "",
+                    "Comma-separated velocity modes to generate: 'internal', 'spring', or both. "
+                    "'internal' uses v=-c·∂E/∂x (raw energy landscape). "
+                    "'spring' uses v=c·λ·(x*-x_t) (spring-clamped EP dynamics). "
+                    "Default: 'internal' for non-EP models, 'internal,spring' for EP models.")
+flags.DEFINE_string("langevin_tau_s", "0",
+                    "Comma-separated Langevin sampling times τs (e.g. '1.0,2.0,3.0'). If any >0, "
+                    "sample via the paper's Langevin SDE (Algorithm 3) instead of the ODE: τs is "
+                    "the Langevin analog of t1 (total integration time = n_steps·dt, "
+                    "n_steps=round(τs/dt)), swept exactly like gen_t1_sweep (cf. the paper's "
+                    "Figure 6, quality vs τs). Uses --gen_dt_sweep for dt and --epsilon_max / "
+                    "--time_cutoff (τ*) for the ε(t) schedule (ε=0 while t<τ* → OT transport, "
+                    "then ε_max → Langevin on the manifold). Only mode that exercises the "
+                    "CD-shaped Boltzmann well. UNet/CNN only (differentiable potential); not PCN.")
+
+# Import models
+from network_cnn import EBCNNModelWrapper
+from network_unet import (EBViTModelWrapper, EBMLPModelWrapper,
+                          EBRonnebergerConvUNetWrapper)
+from network_pcn import PCNVelocityWrapper
+from utils import gibbs_sampling_time_sweep
+
+
+def _step(model, x, t_val, dt, integrator, velocity_mode=None):
+    """Single integration step: Euler or Heun."""
+    v1 = model(t_val, x, velocity_mode=velocity_mode)
+    if integrator == "heun":
+        x_pred = x + v1 * dt
+        v2 = model(t_val, x_pred, velocity_mode=velocity_mode)
+        return x + dt * (v1 + v2) / 2, v1
+    else:  # euler
+        return x + v1 * dt, v1
+
+
+def ode_integrate(model, x0, t0, t1, dt=0.01, integrator="euler",
+                  velocity_mode=None):
+    """
+    ODE integration from t0 to t1 (deterministic, no noise).
+    Supports 'euler' (1st order) and 'heun' (2nd order) integrators.
+    Returns only the final sample for efficiency.
+    """
+    device = x0.device
+    times = torch.arange(t0, t1 + 1e-6, dt, device=device)
+    x = x0.clone()
+
+    with torch.no_grad():
+        for t_val in times:
+            x, _ = _step(model, x, t_val.unsqueeze(0), dt, integrator,
+                         velocity_mode=velocity_mode)
+
+    return x.clamp(-1, 1)
+
+
+def generate_converged(model, x0, dt=0.01, threshold=0.5, max_steps=5000,
+                       integrator="euler"):
+    """
+    Adaptive compute generation: iterate until mean velocity norm < threshold.
+    Returns (final_samples, n_steps_used).
+    """
+    x = x0.clone()
+    with torch.no_grad():
+        for i in range(max_steps):
+            t_val = torch.full((x.size(0),), i * dt, device=x.device)
+            x, v = _step(model, x, t_val, dt, integrator)
+            v_norm = v.view(v.size(0), -1).norm(dim=1).mean().item()
+            if v_norm < threshold:
+                logging.info(f"  Converged at step {i+1} (v_norm={v_norm:.4f})")
+                return x.clamp(-1, 1), i + 1
+    logging.info(f"  Hit max {max_steps} steps (v_norm={v_norm:.4f})")
+    return x.clamp(-1, 1), max_steps
+
+
+def build_model(device):
+    """Build model from FLAGS (same logic as train script)."""
+    img_shape = (3, 32, 32)
+
+    paradigm, arch, pcn_topology = config.resolve_model_type(FLAGS.model_type)
+    _clamp = FLAGS.energy_clamp if FLAGS.energy_clamp and FLAGS.energy_clamp > 0 else None
+    if paradigm == "pcn":
+        model = PCNVelocityWrapper(
+            gamma=FLAGS.pcn_gamma,
+            T_free=FLAGS.T_free,
+            dt_relax=FLAGS.pcn_dt,
+            async_mode=FLAGS.pcn_async,
+            init_mode=FLAGS.pcn_init_mode,
+            output_scale=FLAGS.output_scale,
+            energy_clamp=_clamp,
+            n_cg_steps=FLAGS.pcn_cg_steps,
+            pool_type=FLAGS.pool_type,
+            activation=FLAGS.activation,
+            error_param=FLAGS.pcn_error_param,
+            param_grad_mode=FLAGS.param_grad_mode,
+            lambda_spring=FLAGS.lambda_spring,
+            beta=FLAGS.beta,
+            T_nudge=FLAGS.T_nudge,
+            thirdphase=FLAGS.thirdphase,
+            K_h=FLAGS.K_h,
+            nudge_type=FLAGS.nudge_type,
+            ep_x_grad_mode=FLAGS.ep_x_grad_mode,
+            pcn_arch=pcn_topology,
+            unet_kwargs=dict(
+                dim=img_shape,
+                num_channels=FLAGS.num_channels,
+                num_res_blocks=FLAGS.num_res_blocks,
+                channel_mult=config.parse_channel_mult(FLAGS),
+                attention_resolutions=FLAGS.attention_resolutions,
+                num_heads=FLAGS.num_heads,
+                num_head_channels=FLAGS.num_head_channels,
+                patch_size=FLAGS.patch_size,
+                no_attention=FLAGS.unet_no_attention,
+                no_norm=FLAGS.unet_no_norm,
+                embed_dim=FLAGS.embed_dim,
+                transformer_nheads=FLAGS.transformer_nheads,
+                transformer_nlayers=FLAGS.transformer_nlayers,
+            ) if arch == "unet_vit" else None,
+        ).to(device)
+    elif arch == "ronneberger_conv_unet":
+        model = EBRonnebergerConvUNetWrapper(
+            output_scale=FLAGS.output_scale,
+            energy_clamp=_clamp,
+            in_channels=img_shape[0],
+            num_channels=FLAGS.num_channels,
+            channel_mult=config.parse_channel_mult(FLAGS),
+            pool_type=FLAGS.pool_type,
+            use_norm=FLAGS.conv_unet_norm,
+        ).to(device)
+    elif arch == "unet_mlp":
+        model = EBMLPModelWrapper(
+            dim=img_shape,
+            num_channels=FLAGS.num_channels,
+            num_res_blocks=FLAGS.num_res_blocks,
+            channel_mult=config.parse_channel_mult(FLAGS),
+            attention_resolutions=FLAGS.attention_resolutions,
+            num_heads=FLAGS.num_heads,
+            num_head_channels=FLAGS.num_head_channels,
+            dropout=FLAGS.dropout,
+            no_attention=FLAGS.unet_no_attention,
+            no_norm=FLAGS.unet_no_norm,
+            output_scale=FLAGS.output_scale,
+            energy_clamp=_clamp,
+        ).to(device)
+    elif arch in ("historical", "vgg5", "mlp"):
+        model = EBCNNModelWrapper(
+            output_scale=FLAGS.output_scale,
+            energy_clamp=_clamp,
+            version=arch,
+            pool_type=FLAGS.pool_type,
+        ).to(device)
+    else:  # unet_vit — UNet + ViT head (paper architecture)
+        model = EBViTModelWrapper(
+            dim=img_shape,
+            num_channels=FLAGS.num_channels,
+            num_res_blocks=FLAGS.num_res_blocks,
+            channel_mult=config.parse_channel_mult(FLAGS),
+            attention_resolutions=FLAGS.attention_resolutions,
+            num_heads=FLAGS.num_heads,
+            num_head_channels=FLAGS.num_head_channels,
+            dropout=FLAGS.dropout,
+            output_scale=FLAGS.output_scale,
+            energy_clamp=FLAGS.energy_clamp,
+            patch_size=FLAGS.patch_size,
+            no_attention=FLAGS.unet_no_attention,
+            no_norm=FLAGS.unet_no_norm,
+            embed_dim=FLAGS.embed_dim,
+            transformer_nheads=FLAGS.transformer_nheads,
+            transformer_nlayers=FLAGS.transformer_nlayers,
+        ).to(device)
+
+    return model, img_shape
+
+
+def load_checkpoint(model, ckpt_path, device, use_ema=True):
+    """Load checkpoint and return the model with weights loaded."""
+    ckpt = torch.load(ckpt_path, map_location=device)
+
+    key = "ema_model" if use_ema else "net_model"
+    state_dict = ckpt[key]
+    # Strip 'module.' prefix if saved from DDP
+    state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+    model.load_state_dict(state_dict)
+
+    step = ckpt.get("step", "unknown")
+    logging.info(f"Loaded {key} from {ckpt_path} (step={step})")
+    return model, step
+
+
+def generate_grid(model, img_shape, device, n_samples, t1, dt, integrator="euler",
+                  velocity_mode=None):
+    """Generate a grid of samples with given parameters."""
+    model.eval()
+
+    init = torch.randn(n_samples, *img_shape, device=device)
+    final = ode_integrate(model, init, t0=0.0, t1=t1, dt=dt, integrator=integrator,
+                          velocity_mode=velocity_mode)
+    final_01 = final / 2.0 + 0.5  # [-1,1] -> [0,1]
+
+    return final_01
+
+
+def main(_):
+    if not FLAGS.ckpt:
+        raise ValueError("--ckpt is required")
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logging.info(f"Using device: {device}")
+
+    # Parse sweep parameters
+    t1_values = [float(x.strip()) for x in FLAGS.gen_t1_sweep.split(",")]
+    dt_values = [float(x.strip()) for x in FLAGS.gen_dt_sweep.split(",")]
+    taus_values = [float(x.strip()) for x in FLAGS.langevin_tau_s.split(",")]
+
+    # Build model
+    model, img_shape = build_model(device)
+
+    # Determine which weight variants to use
+    weight_variants = []
+    if FLAGS.use_ema:
+        weight_variants.append(("ema", True))
+    if FLAGS.use_normal:
+        weight_variants.append(("normal", False))
+    if not weight_variants:
+        weight_variants.append(("normal", True))  # default
+
+    # Output directory: same as checkpoint's training run folder (or override)
+    if FLAGS.gen_output_dir:
+        out_dir = FLAGS.gen_output_dir
+    else:
+        out_dir = os.path.dirname(os.path.abspath(FLAGS.ckpt))
+    os.makedirs(out_dir, exist_ok=True)
+    logging.info(f"Saving generated images to: {out_dir}")
+
+    from torchvision.utils import save_image
+
+    total_configs = len(weight_variants) * len(t1_values) * len(dt_values)
+    config_idx = 0
+
+    # Determine velocity modes to generate
+    is_ep = (config.is_pcn(FLAGS.model_type) and FLAGS.param_grad_mode == "ep")
+    if FLAGS.velocity_modes:
+        vel_modes = [m.strip() for m in FLAGS.velocity_modes.split(",")]
+    elif is_ep:
+        vel_modes = ["internal", "spring"]
+    else:
+        vel_modes = [None]  # default mode
+
+    for weight_tag, use_ema in weight_variants:
+        # Load weights
+        model, step = load_checkpoint(model, FLAGS.ckpt, device, use_ema=use_ema)
+
+        if max(taus_values) > 0.0:
+            # Paper Algorithm 3: Langevin SDE from noise. τs is the Langevin analog
+            # of the ODE endpoint t1 (total integration time = n_steps·dt); sweeping
+            # it reproduces the paper's Figure 6 (quality vs τs). plot_epsilon gives
+            # the ε(t) schedule (ε=0 while t<τ*=time_cutoff → deterministic OT
+            # transport; ε_max for t≥1 → Langevin diffusion on the manifold).
+            # at_data_mask all False = noise-initialized unconditional sampling.
+            # This exercises the CD-shaped Boltzmann well the ODE samplers never reach.
+            for tau_s in taus_values:
+                if tau_s <= 0.0:
+                    continue
+                for dt in dt_values:
+                    config_idx += 1
+                    n_steps = int(round(tau_s / dt))
+                    logging.info(
+                        f"[{config_idx}] {weight_tag} | Langevin SDE | "
+                        f"tau_s={tau_s} n_steps={n_steps} dt={dt} "
+                        f"eps_max={FLAGS.epsilon_max} tau*={FLAGS.time_cutoff} | n={FLAGS.n_samples}"
+                    )
+                    init = torch.randn(FLAGS.n_samples, *img_shape, device=device)
+                    at_data_mask = torch.zeros(FLAGS.n_samples, dtype=torch.bool, device=device)
+                    samples = gibbs_sampling_time_sweep(
+                        x_init=init, model=model, at_data_mask=at_data_mask,
+                        n_steps=n_steps, dt=dt
+                    )
+                    grid = samples / 2.0 + 0.5
+                    nrow = int(math.sqrt(FLAGS.n_samples))
+                    fname = (
+                        f"LANGEVIN_{weight_tag}_step{step}_taus{tau_s}"
+                        f"_dt{dt}_eps{FLAGS.epsilon_max}_nsteps{n_steps}.png"
+                    )
+                    fpath = os.path.join(out_dir, fname)
+                    save_image(grid, fpath, nrow=nrow)
+                    logging.info(f"  Saved {fpath}")
+        elif FLAGS.gen_converge_threshold > 0:
+            # Convergence mode: sweep dt (affects step size / trajectory quality)
+            for dt in dt_values:
+                for vel_mode in vel_modes:
+                    config_idx += 1
+                    mode_tag = f"_{vel_mode}" if vel_mode else ""
+                    logging.info(
+                        f"[{config_idx}] {weight_tag}{mode_tag} | convergence mode | "
+                        f"dt={dt} | threshold={FLAGS.gen_converge_threshold} | n={FLAGS.n_samples}"
+                    )
+                    init = torch.randn(FLAGS.n_samples, *img_shape, device=device)
+                    samples, n_steps = generate_converged(
+                        model, init, dt=dt,
+                        threshold=FLAGS.gen_converge_threshold,
+                        integrator=FLAGS.integrator
+                    )
+                    grid = samples / 2.0 + 0.5
+                    nrow = int(math.sqrt(FLAGS.n_samples))
+                    fname = (
+                        f"GEN_{weight_tag}{mode_tag}_{FLAGS.integrator}_step{step}"
+                        f"_converged_dt{dt}_thresh{FLAGS.gen_converge_threshold}"
+                        f"_nsteps{n_steps}.png"
+                    )
+                    fpath = os.path.join(out_dir, fname)
+                    save_image(grid, fpath, nrow=nrow)
+                    logging.info(f"  Saved {fpath}")
+        else:
+            # Standard sweep over t1 × dt × velocity_mode
+            for t1 in t1_values:
+                for dt in dt_values:
+                    for vel_mode in vel_modes:
+                        config_idx += 1
+                        n_steps = int(round(t1 / dt))
+                        mode_tag = f"_{vel_mode}" if vel_mode else ""
+
+                        logging.info(
+                            f"[{config_idx}/{total_configs}] "
+                            f"{weight_tag}{mode_tag} | t1={t1:.2f} | dt={dt} | "
+                            f"steps={n_steps} | n={FLAGS.n_samples}"
+                        )
+
+                        grid = generate_grid(
+                            model, img_shape, device,
+                            FLAGS.n_samples, t1, dt,
+                            integrator=FLAGS.integrator,
+                            velocity_mode=vel_mode
+                        )
+
+                        nrow = int(math.sqrt(FLAGS.n_samples))
+                        fname = (
+                            f"GEN_{weight_tag}{mode_tag}_{FLAGS.integrator}_step{step}"
+                            f"_t1{t1:.2f}_dt{dt}_nsteps{n_steps}.png"
+                        )
+                        fpath = os.path.join(out_dir, fname)
+                        save_image(grid, fpath, nrow=nrow)
+                        logging.info(f"  Saved {fpath}")
+
+    logging.info(f"\nDone! Generated samples saved to {out_dir}/")
+
+
+if __name__ == "__main__":
+    app.run(main)
