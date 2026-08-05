@@ -27,6 +27,17 @@ import config_multigpu as config
 config.define_flags()
 FLAGS = flags.FLAGS
 
+flags.DEFINE_integer("n_samples", 50000,
+                     "Number of FAKE samples for FID. Reduce (e.g. 5000) for a QUICK read. "
+                     "NOTE FID is biased UPWARD with fewer samples, so a quick number is "
+                     "inflated vs the 50k number -- use it for TRENDS/RANKING, not reporting.")
+flags.DEFINE_string("fid_times", "1.0,1.25,1.5,1.75,2.0,2.25,2.5,2.75,3.0,3.25,3.5,3.75,4.0,4.25,4.5,4.75,5.0",
+                    "Comma-separated tau_s points to evaluate. A single value (e.g. '3.25') is "
+                    "far cheaper: cost is dominated by integrating to the MAX tau_s.")
+flags.DEFINE_string("cache_real_features", "",
+                    "Path to a .pt cache of the real-image Inception features. If set and the "
+                    "file exists, skip the ~6min real pass; else compute and save it. Real "
+                    "features are dataset-fixed, so one cache serves every quick_fid run.")
 flags.DEFINE_bool("use_ema", True,
                   "If True, load the EMA model from the checkpoint (default True).")
 
@@ -182,29 +193,48 @@ def main(argv):
     # ------------------------------------------------------------
     # C) Process Real CIFAR Data for FID
     # ------------------------------------------------------------
-    times_to_sample = [1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75, 4.0, 4.25, 4.5, 4.75, 5.0]
+    times_to_sample = [float(t) for t in FLAGS.fid_times.split(",") if t.strip()]
 
     # Create a separate FID calculator for each sampling time
     fid_dict = {t_val: FrechetInceptionDistance(feature=2048).to(device) for t_val in times_to_sample}
 
-    logging.info("Updating FID with real images...")
-    train_loader = get_cifar10_train_loader(
-        batch_size=FLAGS.batch_size,
-        num_workers=FLAGS.num_workers,
-    )
+    # --- real Inception features: compute ONCE (all tau_s share the same real set),
+    #     optionally cached to disk. The original code ran Inception on the real set
+    #     len(times_to_sample)x redundantly; here it is exactly once (or zero on a cache hit).
+    def _grab_real(m):
+        return {"sum": m.real_features_sum.detach().cpu().clone(),
+                "cov": m.real_features_cov_sum.detach().cpu().clone(),
+                "num": m.real_features_num_samples.detach().cpu().clone()}
+    def _set_real(m, st):
+        m.real_features_sum.copy_(st["sum"].to(device))
+        m.real_features_cov_sum.copy_(st["cov"].to(device))
+        m.real_features_num_samples.copy_(st["num"].to(device))
 
-    for real_imgs, _ in tqdm(train_loader, desc="Processing Real Data"):
-        real_imgs = real_imgs.to(device)  # in [0,1]
-        real_uint8 = (real_imgs * 255).clamp(0, 255).to(torch.uint8)
-        # Update all FID calculators with the same real data
-        for t_val in times_to_sample:
-            fid_dict[t_val].update(real_uint8, real=True)
+    cache = FLAGS.cache_real_features
+    if cache and os.path.exists(cache):
+        logging.info(f"Loading cached real features from {cache} (skipping real pass)")
+        st = torch.load(cache, map_location="cpu")
+    else:
+        logging.info("Computing real Inception features once...")
+        ref = FrechetInceptionDistance(feature=2048).to(device)
+        train_loader = get_cifar10_train_loader(
+            batch_size=FLAGS.batch_size, num_workers=FLAGS.num_workers,
+        )
+        for real_imgs, _ in tqdm(train_loader, desc="Processing Real Data"):
+            real_uint8 = (real_imgs.to(device) * 255).clamp(0, 255).to(torch.uint8)
+            ref.update(real_uint8, real=True)
+        st = _grab_real(ref)
+        if cache:
+            torch.save(st, cache)
+            logging.info(f"Saved real features to {cache}")
+    for _m in fid_dict.values():
+        _set_real(_m, st)
 
     # ------------------------------------------------------------
     # D) Generate and Process Fake Images
     # ------------------------------------------------------------
-    total_samples_to_gen = 50000
-    logging.info(f"Generating {total_samples_to_gen} fake samples for FID...")
+    total_samples_to_gen = FLAGS.n_samples
+    logging.info(f"Generating {total_samples_to_gen} fake samples for FID (tau_s: {times_to_sample})...")
 
     n_batches = (total_samples_to_gen + FLAGS.batch_size - 1) // FLAGS.batch_size
     num_generated = 0
@@ -241,7 +271,10 @@ def main(argv):
     # E) Compute and Print Final FIDs
     # ------------------------------------------------------------
     logging.info("Computing final FID scores...")
-    logging.info(f"Comparison is based on {len(train_loader.dataset)} real vs {num_generated} fake samples.")
+    # NB train_loader does not exist on a cache-real-features hit -- report the
+    # real count from the metric state instead (job 32125261 lost 3.9h to this).
+    _real_n = int(next(iter(fid_dict.values())).real_features_num_samples)
+    logging.info(f"Comparison is based on {_real_n} real vs {num_generated} fake samples.")
 
     for t_val in times_to_sample:
         fid_val = fid_dict[t_val].compute()

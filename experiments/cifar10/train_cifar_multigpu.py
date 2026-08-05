@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import copy
+import contextlib
 import datetime
 import math  # <--- import for ceiling
 
@@ -345,29 +346,43 @@ def train_loop(rank, world_size, argv):
 
             optim.zero_grad()
 
-            # Grab next batch for flow
-            x_real_flow = next(datalooper).to(device)
-            # Grab another batch for CD (independent from flow)
-            x_real_cd = next(datalooper).to(device)
+            # Gradient accumulation (--grad_accum>1): each micro-batch computes
+            # its own per-128 OT coupling; losses are AVERAGED (loss/n) so the
+            # optimizer step is statistically identical to running grad_accum x
+            # world_size ranks of 128 in plain DDP (e.g. 2x4x128 == 8x128).
+            # no_sync() defers the DDP all-reduce to the final micro-batch.
+            for _micro in range(FLAGS.grad_accum):
+                # Grab next batch for flow
+                x_real_flow = next(datalooper).to(device)
+                # Grab another batch for CD (independent from flow)
+                x_real_cd = next(datalooper).to(device)
 
-            # Forward pass (flow + optional CD) using both batches
-            total_loss, flow_loss, cd_loss, pos_energy, neg_energy = forward_all(
-                model=net_model,
-                flow_matcher=flow_matcher,
-                x_real_flow=x_real_flow,
-                x_real_cd=x_real_cd,
-                lambda_cd=FLAGS.lambda_cd,
-                cd_neg_clamp=FLAGS.cd_neg_clamp,
-                cd_trim_fraction=FLAGS.cd_trim_fraction,
-                n_gibbs=FLAGS.n_gibbs,
-                dt_gibbs=FLAGS.dt_gibbs,
-                epsilon_max=FLAGS.epsilon_max,
-                time_cutoff=FLAGS.time_cutoff
-            )
-
-
-            total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(net_model.parameters(), FLAGS.grad_clip)
+                _last = (_micro == FLAGS.grad_accum - 1)
+                # Every backward() under DDP normally all-reduces grads across
+                # GPUs, but we only need the cross-GPU average once per optimizer
+                # step. no_sync() suppresses the all-reduce so non-final
+                # micro-batches just accumulate into local .grad; the final
+                # micro-batch (nullcontext) lets DDP's all-reduce fire on the
+                # accumulated sums -> one averaged gradient over all
+                # grad_accum x world_size micro-batches.
+                _ctx = contextlib.nullcontext() if _last else net_model.no_sync()
+                with _ctx:
+                    # Forward pass (flow + optional CD) using both batches
+                    total_loss, flow_loss, cd_loss, pos_energy, neg_energy = forward_all(
+                        model=net_model,
+                        flow_matcher=flow_matcher,
+                        x_real_flow=x_real_flow,
+                        x_real_cd=x_real_cd,
+                        lambda_cd=FLAGS.lambda_cd,
+                        cd_neg_clamp=FLAGS.cd_neg_clamp,
+                        cd_trim_fraction=FLAGS.cd_trim_fraction,
+                        n_gibbs=FLAGS.n_gibbs,
+                        dt_gibbs=FLAGS.dt_gibbs,
+                        epsilon_max=FLAGS.epsilon_max,
+                        time_cutoff=FLAGS.time_cutoff
+                    )
+                    (total_loss / FLAGS.grad_accum).backward() # Need to divide by accumulation factor so full DDP bavkward will do usual mean over batches not including some summed up 
+            grad_total_norm = torch.nn.utils.clip_grad_norm_(net_model.parameters(), FLAGS.grad_clip)
             optim.step()
             sched.step()
 
@@ -390,6 +405,7 @@ def train_loop(rank, world_size, argv):
                     f"pos_min={pos_energy.min().item():.5f}, pos_max={pos_energy.max().item():.5f}, "
                     f"neg_std={neg_energy.std().item():.5f}, "
                     f"neg_min={neg_energy.min().item():.5f}, neg_max={neg_energy.max().item():.5f}, "
+                    f"gnorm={grad_total_norm.item():.4f}, "
                     f"LR={curr_lr:.6f}, {sps:.2f} it/s"
                 )
 

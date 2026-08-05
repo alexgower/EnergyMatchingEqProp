@@ -69,6 +69,12 @@ def define_flags():
                        "[eqm] global gradient multiplier (EqM paper's best on their "
                        "vector-field UNet was 4.0 with truncated a=0.8; untested on "
                        "our scalar-V arch).")
+    flags.DEFINE_integer("grad_accum", 1,
+                         "Micro-batches accumulated per optimizer step. grad_accum=2 with "
+                         "batch 128/GPU on 4 GPUs = effective batch 1024 with per-128 OT "
+                         "couplings — mathematically equivalent to 8x128 DDP (loss is "
+                         "averaged over micro-batches; DDP all-reduce deferred to the last "
+                         "micro-batch via no_sync).")
     flags.DEFINE_float("epsilon_max", 0.0, "Max step size in Gibbs sampling")
     flags.DEFINE_float("dt_gibbs", 0.01, "Step size for Gibbs sampling")
     flags.DEFINE_integer("n_gibbs", 0, "Number of Gibbs steps")
