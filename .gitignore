@@ -12,3 +12,17 @@ results*
 checkpoints_authors*
 REPLICATION_INVESTIGATION.md
 RESULTS_SUMMARY.md
+old_cifar10_initial_tests/
+
+
+!results_cifar10_pcn/
+results_cifar10_pcn/*
+!results_cifar10_pcn/in_paper/
+!results_mnist_pcn/
+results_mnist_pcn/*
+!results_mnist_pcn/in_paper/
+
+results_*/**/*.pt
+
+
+results_*/**/*.INFO
