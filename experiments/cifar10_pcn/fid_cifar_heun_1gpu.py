@@ -37,12 +37,30 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_bool("use_ema", True,
                   "If True, load the EMA model from the checkpoint (default True).")
+flags.DEFINE_bool("ffn_checkpoint_into_pcn", False,
+                  "If True, --resume_ckpt is a stage-0 FFN (EBViT) checkpoint to "
+                  "be remapped into a PCN model via load_from_ebvit (requires a "
+                  "pcn --model_type): train-with-backprop, infer-on-PCN eval.")
 flags.DEFINE_integer("fid_n_samples", 50000,
                      "Number of fake samples to generate for FID (paper: 50000).")
 flags.DEFINE_string("fid_times", "1.0,1.25,1.5,1.75,2.0,2.25,2.5,2.75,3.0,3.25,3.5,3.75,4.0,4.25,4.5,4.75,5.0",
                     "Comma-separated sampling times τs at which FID is computed "
                     "(one FID accumulator each; the trajectory is integrated "
                     "incrementally through them).")
+flags.DEFINE_string("real_dataset", "cifar10",
+                    "Real image set for the FID statistics: 'cifar10' (default, "
+                    "torchvision train split) or 'imagenet32' (the official "
+                    "downsampled-ImageNet train batches via IMAGENET32_PATH, as in "
+                    "the Energy Matching ImageNet32 protocol).")
+flags.DEFINE_integer("fid_seed", -1,
+                     "Sampling seed for the fake-sample noise. Single-GPU here; "
+                     "the multi-GPU runner offsets it per rank (fid_seed*1000+rank). "
+                     "-1 = unseeded (legacy). Used for sampling-seed error bars.")
+flags.DEFINE_string("cache_real_features", "",
+                    "Path to cache the real-set Inception feature statistics "
+                    "(e.g. ./data/fid_real_features_cifar10_50k.pt — shared with "
+                    "the cifar10 tree). Loaded if it exists (skips the ~40min "
+                    "real pass), created otherwise. Empty = no caching.")
 
 import torchvision
 import torchvision.transforms as T
@@ -66,7 +84,18 @@ from tqdm import tqdm
 ##############################################################################
 
 def get_cifar10_train_loader(batch_size, num_workers, root=None):
-    """Returns a standard DataLoader for CIFAR-10 train set."""
+    """Real-set DataLoader in [0,1] (plain ToTensor). CIFAR-10 train by default;
+    --real_dataset=imagenet32 switches to the official downsampled-ImageNet
+    train batches, matching get_cifar10_train_loader_sharded in the multi-GPU
+    runner so both entry points score against identical reals."""
+    if FLAGS.real_dataset == "imagenet32":
+        import sys as _sys
+        _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "imagenet"))
+        from dataset_imagenet32 import ImageNet32Dataset
+        dataset = ImageNet32Dataset(split="train", root=os.environ.get("IMAGENET32_PATH"),
+                                    transform=T.ToTensor())
+        return DataLoader(dataset, batch_size=batch_size, shuffle=False,
+                          num_workers=num_workers, drop_last=False)
     if root is None:
         root = os.environ.get("CIFAR10_PATH", "./data")
 
@@ -127,6 +156,8 @@ def build_model(device):
                 patch_size=FLAGS.patch_size,
                 no_attention=FLAGS.unet_no_attention,
                 no_norm=FLAGS.unet_no_norm,
+                ws=FLAGS.unet_ws,
+                frozen_dropout=FLAGS.pcn_frozen_dropout,
                 embed_dim=FLAGS.embed_dim,
                 transformer_nheads=FLAGS.transformer_nheads,
                 transformer_nlayers=FLAGS.transformer_nlayers,
@@ -144,6 +175,7 @@ def build_model(device):
         ).to(device)
     elif arch == "unet_mlp":
         model = EBMLPModelWrapper(
+            mlp_head=FLAGS.mlp_head,
             dim=img_shape,
             num_channels=FLAGS.num_channels,
             num_res_blocks=FLAGS.num_res_blocks,
@@ -154,6 +186,8 @@ def build_model(device):
             dropout=FLAGS.dropout,
             no_attention=FLAGS.unet_no_attention,
             no_norm=FLAGS.unet_no_norm,
+                ws=FLAGS.unet_ws,
+            residual_alpha=FLAGS.residual_alpha,
             output_scale=FLAGS.output_scale,
             energy_clamp=_clamp,
         ).to(device)
@@ -180,6 +214,8 @@ def build_model(device):
             patch_size=FLAGS.patch_size,
             no_attention=FLAGS.unet_no_attention,
             no_norm=FLAGS.unet_no_norm,
+                ws=FLAGS.unet_ws,
+            residual_alpha=FLAGS.residual_alpha,
             embed_dim=FLAGS.embed_dim,
             transformer_nheads=FLAGS.transformer_nheads,
             transformer_nlayers=FLAGS.transformer_nlayers,
@@ -250,6 +286,12 @@ def main(argv):
 
     if not FLAGS.output_dir:
         FLAGS.output_dir = "./sampling_results"
+    # FID evals are logs, not runs: when running with the config's default
+    # output_dir, drop eval dirs into fid_evals/ (the organized bucket) instead
+    # of littering the results_cifar10_pcn/ top level. An explicit
+    # --output_dir is always respected unchanged.
+    if FLAGS.output_dir.rstrip("/") == "./results_cifar10_pcn":
+        FLAGS.output_dir = "./results_cifar10_pcn/fid_evals/"
     savedir = create_timestamped_dir(FLAGS.output_dir, FLAGS.model)
     logging.get_absl_handler().use_absl_log_file(program_name="fid_cifar10", log_dir=savedir)
     logging.set_verbosity(logging.INFO)
@@ -271,9 +313,22 @@ def main(argv):
     state_dict = ckpt_data[key]
     # Strip 'module.' prefix if the checkpoint was saved from a DDP wrapper
     state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
-    net_model.load_state_dict(state_dict, strict=True)
-    logging.info(f"Loaded {key}.")
+    if FLAGS.ffn_checkpoint_into_pcn:
+        if not hasattr(net_model, "pcn"):
+            raise ValueError("--ffn_checkpoint_into_pcn requires a pcn --model_type")
+        net_model.pcn.load_from_ebvit(state_dict, strict=True)
+        logging.info(f"Loaded {key} via EBViT->PCN key remap (train-FFN, infer-PCN).")
+    else:
+        net_model.load_state_dict(state_dict, strict=True)
+        logging.info(f"Loaded {key}.")
     net_model.eval()
+
+    # Sampling seed for the fake-sample noise. World size is 1 here, so this is
+    # the multi-GPU runner's rank-0 seed (fid_seed*1000+0) -- a 1-GPU run and a
+    # rank of a multi-GPU run at the same fid_seed draw the same initial noise.
+    if FLAGS.fid_seed >= 0:
+        torch.manual_seed(FLAGS.fid_seed * 1000)
+        logging.info(f"fid_seed={FLAGS.fid_seed} (seed = fid_seed*1000)")
 
     # ------------------------------------------------------------
     # C) Process Real CIFAR Data for FID
@@ -283,18 +338,40 @@ def main(argv):
     # Create a separate FID calculator for each sampling time
     fid_dict = {t_val: FrechetInceptionDistance(feature=2048).to(device) for t_val in times_to_sample}
 
-    logging.info("Updating FID with real images...")
-    train_loader = get_cifar10_train_loader(
-        batch_size=FLAGS.batch_size,
-        num_workers=FLAGS.num_workers,
-    )
+    # --- real Inception features: compute ONCE (all tau_s share the same real
+    #     set), optionally cached to disk (ported from cifar10; the shared cache
+    #     ./data/fid_real_features_cifar10_50k.pt saves ~40min per quick-FID).
+    #     The original loop ran Inception on the real set len(times)x redundantly.
+    def _grab_real(m):
+        return {"sum": m.real_features_sum.detach().cpu().clone(),
+                "cov": m.real_features_cov_sum.detach().cpu().clone(),
+                "num": m.real_features_num_samples.detach().cpu().clone()}
+    def _set_real(m, st):
+        m.real_features_sum.copy_(st["sum"].to(device))
+        m.real_features_cov_sum.copy_(st["cov"].to(device))
+        m.real_features_num_samples.copy_(st["num"].to(device))
 
-    for real_imgs, _ in tqdm(train_loader, desc="Processing Real Data"):
-        real_imgs = real_imgs.to(device)  # in [0,1]
-        real_uint8 = (real_imgs * 255).clamp(0, 255).to(torch.uint8)
-        # Update all FID calculators with the same real data
-        for t_val in times_to_sample:
-            fid_dict[t_val].update(real_uint8, real=True)
+    cache = FLAGS.cache_real_features
+    if cache and os.path.exists(cache):
+        logging.info(f"Loading cached real features from {cache} (skipping real pass)")
+        st = torch.load(cache, map_location="cpu")
+    else:
+        logging.info("Computing real Inception features once...")
+        ref = FrechetInceptionDistance(feature=2048).to(device)
+        train_loader = get_cifar10_train_loader(
+            batch_size=FLAGS.batch_size,
+            num_workers=FLAGS.num_workers,
+        )
+        for real_imgs, _ in tqdm(train_loader, desc="Processing Real Data"):
+            real_imgs = real_imgs.to(device)  # in [0,1]
+            real_uint8 = (real_imgs * 255).clamp(0, 255).to(torch.uint8)
+            ref.update(real_uint8, real=True)
+        st = _grab_real(ref)
+        if cache:
+            torch.save(st, cache)
+            logging.info(f"Saved real features to {cache}")
+    for _m in fid_dict.values():
+        _set_real(_m, st)
 
     # ------------------------------------------------------------
     # D) Generate and Process Fake Images
@@ -337,7 +414,11 @@ def main(argv):
     # E) Compute and Print Final FIDs
     # ------------------------------------------------------------
     logging.info("Computing final FID scores...")
-    logging.info(f"Comparison is based on {len(train_loader.dataset)} real vs {num_generated} fake samples.")
+    # NB train_loader does not exist on a cache-real-features hit -- report the
+    # real count from the metric state instead (cifar10 job 32125261 lost 3.9h
+    # of generation to exactly this reference).
+    _real_n = int(next(iter(fid_dict.values())).real_features_num_samples)
+    logging.info(f"Comparison is based on {_real_n} real vs {num_generated} fake samples.")
 
     for t_val in times_to_sample:
         fid_val = fid_dict[t_val].compute()

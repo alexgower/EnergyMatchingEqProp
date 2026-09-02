@@ -1,0 +1,44 @@
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/../../results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=128 x 4 batches
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err
+--------------------------------------------------------------
+float32      1      1.0 |  0.999999970  0.999950916    1.357e-04
+float32      1      2.0 |  0.999999911  0.999901593    2.715e-04
+float32      1      3.0 |  0.999999940  0.999852136    4.075e-04
+float32      1      5.0 |  0.999999776  0.999752656    6.798e-04
+float32      1     10.0 |  0.999999166  0.999501169    1.362e-03
+float32      1     20.0 |  0.999996707  0.998985782    2.736e-03
+float32      1     30.0 |  0.999992535  0.998454243    4.121e-03
+float32      1    100.0 |  0.999911949  0.994324386    1.425e-02
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
+######## FLOAT64 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/../../results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=64 x 2 batches
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err
+--------------------------------------------------------------
+float32      1      1.0 |  0.999999970  0.999954224    1.250e-04
+float32      1      2.0 |  0.999999970  0.999908268    2.501e-04
+float32      1      3.0 |  0.999999940  0.999862194    3.755e-04
+float32      1      5.0 |  0.999999791  0.999769479    6.264e-04
+float32      1     10.0 |  0.999999255  0.999535173    1.256e-03
+float32      1     20.0 |  0.999997050  0.999055535    2.525e-03
+float32      1     30.0 |  0.999993324  0.998561472    3.805e-03
+float32      1    100.0 |  0.999923766  0.994748533    1.295e-02
+float64      1      1.0 |  0.999999993  0.999954203    1.250e-04
+float64      1      2.0 |  0.999999971  0.999908253    2.502e-04
+float64      1      3.0 |  0.999999935  0.999862150    3.755e-04
+float64      1      5.0 |  0.999999818  0.999769489    6.265e-04
+float64      1     10.0 |  0.999999269  0.999535200    1.256e-03
+float64      1     20.0 |  0.999997050  0.999055527    2.525e-03
+float64      1     30.0 |  0.999993313  0.998561494    3.805e-03
+float64      1    100.0 |  0.999923740  0.994748517    1.295e-02
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
+Exit code: 0

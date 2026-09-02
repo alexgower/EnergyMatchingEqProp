@@ -1,0 +1,22 @@
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/../../results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=128 x 2 batches
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err
+--------------------------------------------------------------
+float32      1     0.01 |  0.353273392  1.047332227    1.165e+00
+float32      1      0.1 |  0.003161160  0.648776680    1.191e+00
+float32      2     0.01 |  1.000000030  0.999999523    9.603e-07
+float32      2      0.1 |  0.999999970  0.999996096    7.402e-06
+float32      5     0.01 |  1.000000000  0.999999523    1.399e-06
+float32      5      0.1 |  1.000000060  0.999995679    1.354e-05
+float32     10     0.01 |  1.000000000  0.999999523    1.402e-06
+float32     10      0.1 |  1.000000060  0.999995679    1.353e-05
+float32     20     0.01 |  1.000000060  0.999999493    1.406e-06
+float32     20      0.1 |  1.000000060  0.999995619    1.354e-05
+float32     60     0.01 |  1.000000060  0.999999493    1.406e-06
+float32     60      0.1 |  1.000000060  0.999995679    1.354e-05
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
+Exit code: 0

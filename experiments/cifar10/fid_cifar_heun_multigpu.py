@@ -52,6 +52,11 @@ flags.DEFINE_integer("n_samples", 50000,
 flags.DEFINE_string("fid_times", "1.0,1.25,1.5,1.75,2.0,2.25,2.5,2.75,3.0,3.25,3.5,3.75,4.0,4.25,4.5,4.75,5.0",
                     "Comma-separated tau_s evaluation points. Cost is set by the max.")
 
+flags.DEFINE_integer("fid_seed", -1,
+                     "Sampling seed for the fake-sample noise (per rank: "
+                     "fid_seed*1000+rank). -1 = unseeded (legacy). Mirrors the "
+                     "flag in the cifar10_pcn port, for matched seed replicates.")
+
 from torchmetrics.image.fid import FrechetInceptionDistance
 from network_transformer_vit import EBViTModelWrapper
 sys.path.append(
@@ -179,6 +184,11 @@ def main(argv):
     net_model.load_state_dict(ckpt_data[key], strict=True)
     net_model.eval()
     dist.barrier()
+
+    if FLAGS.fid_seed >= 0:
+        torch.manual_seed(FLAGS.fid_seed * 1000 + rank)
+        if rank == 0:
+            logging.info(f"[Rank 0] fid_seed={FLAGS.fid_seed}")
 
     # D) FID accumulators (torchmetrics merges across ranks at .compute())
     times_to_sample = [float(t) for t in FLAGS.fid_times.split(",") if t.strip()]
