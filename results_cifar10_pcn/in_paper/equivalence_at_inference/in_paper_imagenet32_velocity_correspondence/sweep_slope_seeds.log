@@ -1,0 +1,160 @@
+######## ImageNet-32 unclamped fp32, K_h=1, DIAG_SEED=1 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/checkpoints_authors/imagenet32x32_warm_up_640000.pt (ema_model) step=640000  B=128 x 4 batches  clamp=None  seed=1
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_1
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/../imagenet/dataset_imagenet32.py:13: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  data_dict = pickle.load(fo)
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_2
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_3
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_4
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_5
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_6
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_7
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_8
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_9
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_10
+[ImageNet32Dataset] Loaded total of 1281167 images.
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  1.000000060  0.999999970    4.120e-07 |  1.000000000  0.999999967  4.541e-07  1.498e-07   4.287e-07 | 4.123e-07 1.422e-07  3.870e-07
+float32      1   0.0003 |  1.000000060  1.000000089    4.161e-07 |  1.000000000  1.000000053  4.562e-07  1.610e-07   4.268e-07 | 4.165e-07 1.557e-07  3.863e-07
+float32      1    0.001 |  1.000000075  1.000000000    4.175e-07 |  1.000000000  1.000000011  4.600e-07  1.624e-07   4.304e-07 | 4.191e-07 1.563e-07  3.888e-07
+float32      1    0.003 |  1.000000089  0.999999970    4.562e-07 |  1.000000000  0.999999963  5.012e-07  2.138e-07   4.533e-07 | 4.570e-07 2.080e-07  4.070e-07
+float32      1     0.01 |  1.000000030  0.999999717    8.114e-07 |  1.000000000  0.999999721  8.675e-07  5.227e-07   6.922e-07 | 8.153e-07 5.281e-07  6.211e-07
+float32      1     0.03 |  1.000000060  0.999999240    2.113e-06 |  1.000000000  0.999999227  2.230e-06  1.497e-06   1.653e-06 | 2.125e-06 1.519e-06  1.487e-06
+float32      1      0.1 |  1.000000060  0.999997541    6.864e-06 |  1.000000000  0.999997546  7.222e-06  4.925e-06   5.281e-06 | 6.908e-06 5.008e-06  4.758e-06
+float32      1      0.3 |  1.000000060  0.999992535    2.057e-05 |  1.000000000  0.999992591  2.164e-05  1.482e-05   1.576e-05 | 2.070e-05 1.506e-05  1.420e-05
+float32      1      1.0 |  1.000000000  0.999975100    6.856e-05 |  0.999999999  0.999975314  7.211e-05  4.938e-05   5.255e-05 | 6.899e-05 5.018e-05  4.735e-05
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
+######## ImageNet-32 unclamped fp32, K_h=1, DIAG_SEED=2 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/checkpoints_authors/imagenet32x32_warm_up_640000.pt (ema_model) step=640000  B=128 x 4 batches  clamp=None  seed=2
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_1
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/../imagenet/dataset_imagenet32.py:13: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  data_dict = pickle.load(fo)
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_2
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_3
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_4
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_5
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_6
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_7
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_8
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_9
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_10
+[ImageNet32Dataset] Loaded total of 1281167 images.
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  1.000000060  1.000000000    3.767e-07 |  1.000000000  0.999999961  3.961e-07  1.431e-07   3.694e-07 | 3.768e-07 1.417e-07  3.491e-07
+float32      1   0.0003 |  1.000000119  1.000000119    3.829e-07 |  1.000000000  1.000000041  4.020e-07  1.530e-07   3.718e-07 | 3.833e-07 1.516e-07  3.520e-07
+float32      1    0.001 |  1.000000015  1.000000060    3.770e-07 |  1.000000000  1.000000007  4.002e-07  1.468e-07   3.723e-07 | 3.775e-07 1.425e-07  3.496e-07
+float32      1    0.003 |  1.000000060  1.000000000    4.178e-07 |  1.000000000  0.999999941  4.340e-07  1.950e-07   3.877e-07 | 4.187e-07 1.963e-07  3.698e-07
+float32      1     0.01 |  1.000000089  0.999999672    7.725e-07 |  1.000000000  0.999999666  7.811e-07  5.312e-07   5.726e-07 | 7.780e-07 5.415e-07  5.586e-07
+float32      1     0.03 |  1.000000060  0.999999121    1.952e-06 |  1.000000000  0.999999078  1.940e-06  1.437e-06   1.303e-06 | 1.974e-06 1.474e-06  1.313e-06
+float32      1      0.1 |  1.000000060  0.999996990    6.366e-06 |  1.000000000  0.999996999  6.303e-06  4.758e-06   4.135e-06 | 6.445e-06 4.887e-06  4.202e-06
+float32      1      0.3 |  1.000000015  0.999990836    1.907e-05 |  1.000000000  0.999990985  1.888e-05  1.427e-05   1.236e-05 | 1.931e-05 1.466e-05  1.257e-05
+float32      1      1.0 |  1.000000119  0.999969378    6.353e-05 |  0.999999999  0.999969997  6.289e-05  4.752e-05   4.120e-05 | 6.433e-05 4.881e-05  4.191e-05
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
+######## ImageNet-32 unclamped fp32, K_h=1, DIAG_SEED=3 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/checkpoints_authors/imagenet32x32_warm_up_640000.pt (ema_model) step=640000  B=128 x 4 batches  clamp=None  seed=3
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_1
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/../imagenet/dataset_imagenet32.py:13: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  data_dict = pickle.load(fo)
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_2
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_3
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_4
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_5
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_6
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_7
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_8
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_9
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_10
+[ImageNet32Dataset] Loaded total of 1281167 images.
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  1.000000015  0.999999881    4.077e-07 |  1.000000000  0.999999962  4.257e-07  1.575e-07   3.954e-07 | 4.096e-07 1.533e-07  3.799e-07
+float32      1   0.0003 |  0.999999985  1.000000030    4.101e-07 |  1.000000000  1.000000047  4.268e-07  1.602e-07   3.955e-07 | 4.113e-07 1.557e-07  3.807e-07
+float32      1    0.001 |  1.000000000  1.000000000    4.115e-07 |  1.000000000  1.000000010  4.262e-07  1.550e-07   3.971e-07 | 4.130e-07 1.513e-07  3.843e-07
+float32      1    0.003 |  0.999999955  0.999999881    4.769e-07 |  1.000000000  0.999999950  4.915e-07  1.907e-07   4.530e-07 | 4.850e-07 1.902e-07  4.461e-07
+float32      1     0.01 |  0.999999985  0.999999627    9.830e-07 |  1.000000000  0.999999684  1.013e-06  5.257e-07   8.657e-07 | 1.031e-06 5.346e-07  8.812e-07
+float32      1     0.03 |  0.999999985  0.999999061    2.647e-06 |  1.000000000  0.999999123  2.754e-06  1.459e-06   2.336e-06 | 2.829e-06 1.488e-06  2.406e-06
+float32      1      0.1 |  0.999999985  0.999997064    8.707e-06 |  1.000000000  0.999997177  9.056e-06  4.806e-06   7.675e-06 | 9.315e-06 4.907e-06  7.918e-06
+float32      1      0.3 |  0.999999985  0.999991179    2.615e-05 |  1.000000000  0.999991452  2.720e-05  1.444e-05   2.305e-05 | 2.798e-05 1.475e-05  2.378e-05
+float32      1      1.0 |  1.000000000  0.999970704    8.732e-05 |  0.999999997  0.999971534  9.085e-05  4.810e-05   7.707e-05 | 9.349e-05 4.912e-05  7.955e-05
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
+######## ImageNet-32 unclamped fp32, K_h=1, DIAG_SEED=4 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/checkpoints_authors/imagenet32x32_warm_up_640000.pt (ema_model) step=640000  B=128 x 4 batches  clamp=None  seed=4
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_1
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/../imagenet/dataset_imagenet32.py:13: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  data_dict = pickle.load(fo)
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_2
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_3
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_4
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_5
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_6
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_7
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_8
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_9
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_10
+[ImageNet32Dataset] Loaded total of 1281167 images.
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  1.000000045  0.999999940    4.131e-07 |  1.000000000  0.999999974  4.444e-07  1.543e-07   4.168e-07 | 4.131e-07 1.497e-07  3.850e-07
+float32      1   0.0003 |  1.000000060  1.000000030    4.177e-07 |  1.000000000  1.000000055  4.497e-07  1.616e-07   4.197e-07 | 4.180e-07 1.555e-07  3.880e-07
+float32      1    0.001 |  1.000000045  1.000000000    4.113e-07 |  1.000000000  1.000000018  4.425e-07  1.560e-07   4.141e-07 | 4.114e-07 1.519e-07  3.823e-07
+float32      1    0.003 |  1.000000015  0.999999911    4.595e-07 |  1.000000000  0.999999964  4.982e-07  2.092e-07   4.521e-07 | 4.599e-07 2.061e-07  4.112e-07
+float32      1     0.01 |  1.000000015  0.999999687    8.102e-07 |  1.000000000  0.999999720  8.824e-07  5.208e-07   7.124e-07 | 8.133e-07 5.265e-07  6.200e-07
+float32      1     0.03 |  1.000000015  0.999999166    2.078e-06 |  1.000000000  0.999999213  2.280e-06  1.447e-06   1.763e-06 | 2.092e-06 1.465e-06  1.493e-06
+float32      1      0.1 |  0.999999970  0.999997407    6.761e-06 |  1.000000000  0.999997460  7.430e-06  4.760e-06   5.706e-06 | 6.816e-06 4.828e-06  4.812e-06
+float32      1      0.3 |  1.000000045  0.999992073    2.028e-05 |  1.000000000  0.999992302  2.226e-05  1.433e-05   1.704e-05 | 2.044e-05 1.454e-05  1.437e-05
+float32      1      1.0 |  0.999999985  0.999973670    6.757e-05 |  0.999999998  0.999974352  7.424e-05  4.773e-05   5.686e-05 | 6.813e-05 4.842e-05  4.793e-05
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
+######## ImageNet-32 unclamped fp32, K_h=1, DIAG_SEED=5 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/checkpoints_authors/imagenet32x32_warm_up_640000.pt (ema_model) step=640000  B=128 x 4 batches  clamp=None  seed=5
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_1
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/../imagenet/dataset_imagenet32.py:13: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  data_dict = pickle.load(fo)
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_2
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_3
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_4
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_5
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_6
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_7
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_8
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_9
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_10
+[ImageNet32Dataset] Loaded total of 1281167 images.
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  1.000000060  0.999999940    3.875e-07 |  1.000000000  0.999999963  4.119e-07  1.403e-07   3.873e-07 | 3.875e-07 1.366e-07  3.627e-07
+float32      1   0.0003 |  1.000000015  1.000000089    4.002e-07 |  1.000000000  1.000000045  4.281e-07  1.602e-07   3.970e-07 | 4.003e-07 1.537e-07  3.697e-07
+float32      1    0.001 |  1.000000045  1.000000000    3.861e-07 |  1.000000000  1.000000005  4.093e-07  1.450e-07   3.828e-07 | 3.862e-07 1.425e-07  3.590e-07
+float32      1    0.003 |  1.000000045  0.999999970    4.279e-07 |  1.000000000  0.999999957  4.598e-07  2.042e-07   4.120e-07 | 4.284e-07 1.984e-07  3.797e-07
+float32      1     0.01 |  1.000000045  0.999999687    7.653e-07 |  1.000000000  0.999999699  7.923e-07  5.486e-07   5.717e-07 | 7.680e-07 5.564e-07  5.295e-07
+float32      1     0.03 |  1.000000030  0.999999136    1.986e-06 |  1.000000000  0.999999148  2.035e-06  1.568e-06   1.297e-06 | 1.993e-06 1.597e-06  1.192e-06
+float32      1      0.1 |  0.999999985  0.999997288    6.483e-06 |  1.000000000  0.999997267  6.623e-06  5.193e-06   4.111e-06 | 6.508e-06 5.292e-06  3.787e-06
+float32      1      0.3 |  1.000000045  0.999991745    1.945e-05 |  1.000000000  0.999991740  1.987e-05  1.562e-05   1.227e-05 | 1.953e-05 1.592e-05  1.131e-05
+float32      1      1.0 |  1.000000000  0.999972418    6.483e-05 |  0.999999999  0.999972440  6.620e-05  5.207e-05   4.088e-05 | 6.508e-05 5.306e-05  3.768e-05
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).

@@ -88,6 +88,7 @@ def build_model(device):
                 patch_size=FLAGS.patch_size,
                 no_attention=FLAGS.unet_no_attention,
                 no_norm=FLAGS.unet_no_norm,
+                ws=FLAGS.unet_ws,
                 embed_dim=FLAGS.embed_dim,
                 transformer_nheads=FLAGS.transformer_nheads,
                 transformer_nlayers=FLAGS.transformer_nlayers,
@@ -115,6 +116,7 @@ def build_model(device):
             dropout=FLAGS.dropout,
             no_attention=FLAGS.unet_no_attention,
             no_norm=FLAGS.unet_no_norm,
+                ws=FLAGS.unet_ws,
             output_scale=FLAGS.output_scale,
             energy_clamp=_clamp,
         ).to(device)
@@ -141,6 +143,7 @@ def build_model(device):
             patch_size=FLAGS.patch_size,
             no_attention=FLAGS.unet_no_attention,
             no_norm=FLAGS.unet_no_norm,
+                ws=FLAGS.unet_ws,
             embed_dim=FLAGS.embed_dim,
             transformer_nheads=FLAGS.transformer_nheads,
             transformer_nlayers=FLAGS.transformer_nlayers,

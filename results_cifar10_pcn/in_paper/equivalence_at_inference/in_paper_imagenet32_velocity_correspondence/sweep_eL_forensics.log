@@ -1,0 +1,148 @@
+######## e_L forensics: CIFAR-10, UNCLAMPED, fp32+f64 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_velocity_correspondence_gamma_grid/../in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=128 x 4 batches  clamp=None  seed=0
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchvision/datasets/cifar.py:83: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  entry = pickle.load(f, encoding="latin1")
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  0.999999985  0.999999911    4.072e-07 |  1.000000000  0.999999958  4.323e-07  1.392e-07   4.093e-07 | 4.073e-07 1.326e-07  3.852e-07
+RESID float32   0.0001 | spring=7.539e-08 |V_old-V_new|=7.539e-01 |V_new-V_ff|=1.003e-01 |V_pred-V_ff|=2.895e-01 |V_ff|=9.454e+02 tanh(V_ff/c)=0.000 rel_factor_err_old=0.000e+00 rel_factor_err_new=0.000e+00 rel_factor_err_pred=0.000e+00
+EL    float32   0.0001 | mean(e_L)=+2.3967e-04 std(e_L)=3.058e-04 mean/gamma=+2.3967 std/gamma=3.0575 |mean-gamma|=1.397e-04 rms(e_L)=3.883e-04
+NODES float32   0.0001 | spring_k=[3.2e-14 7.2e-16 5.9e-16 3.8e-17 2.7e-16 5.9e-16 2.3e-18 1.9e-18 1.9e-18 1.6e-21 2.0e-21 9.0e-22 3.7e-22 2.6e-25 0.0e+00 1.6e-26 3.6e-24 1.1e-22 6.3e-24 2.4e-22 5.6e-22 2.4e-25 1.6e-23 2.4e-21 1.4e-19 1.6e-11 7.5e-08]
+HDEV  float32   0.0001 | |h*-h_ff|/|h_ff|_k=[5.1e-10 9.4e-08 5.1e-07 4.1e-07 2.8e-07 9.8e-07 8.2e-07 9.0e-07 1.1e-06 9.4e-07 9.8e-07 1.0e-06 1.1e-06 1.4e-06 1.5e-06 1.3e-06 1.3e-06 1.3e-06 1.3e-06 1.2e-06 1.1e-06 1.2e-06 8.5e-07 4.7e-07 1.1e-07 6.0e-07 3.4e-03]
+float32      1    0.001 |  0.999999985  1.000000000    4.161e-07 |  1.000000000  0.999999994  4.577e-07  1.553e-07   4.305e-07 | 4.168e-07 1.405e-07  3.924e-07
+RESID float32    0.001 | spring=6.975e-07 |V_old-V_new|=6.976e-01 |V_new-V_ff|=1.003e+00 |V_pred-V_ff|=2.892e-01 |V_ff|=9.454e+02 tanh(V_ff/c)=0.000 rel_factor_err_old=0.000e+00 rel_factor_err_new=0.000e+00 rel_factor_err_pred=0.000e+00
+EL    float32    0.001 | mean(e_L)=+1.1397e-03 std(e_L)=3.058e-04 mean/gamma=+1.1397 std/gamma=0.3058 |mean-gamma|=1.397e-04 rms(e_L)=1.180e-03
+NODES float32    0.001 | spring_k=[1.6e-11 6.2e-13 4.9e-13 4.1e-14 2.7e-13 5.3e-13 2.3e-15 1.8e-15 1.9e-15 2.0e-18 1.9e-18 1.5e-18 4.0e-19 8.1e-22 1.5e-21 8.8e-22 1.0e-20 1.4e-19 8.4e-21 2.3e-19 4.8e-19 4.1e-22 1.3e-20 2.4e-18 1.3e-16 1.4e-09 7.0e-07]
+HDEV  float32    0.001 | |h*-h_ff|/|h_ff|_k=[1.2e-08 1.7e-07 6.4e-07 4.8e-07 3.1e-07 1.0e-06 8.4e-07 9.2e-07 1.1e-06 9.5e-07 9.9e-07 1.0e-06 1.1e-06 1.4e-06 1.5e-06 1.3e-06 1.3e-06 1.3e-06 1.3e-06 1.2e-06 1.1e-06 1.3e-06 8.8e-07 5.0e-07 1.2e-07 2.7e-06 1.1e-02]
+float32      1     0.01 |  0.999999985  0.999999478    1.385e-06 |  1.000000000  0.999999445  1.707e-06  9.602e-07   1.411e-06 | 1.406e-06 7.976e-07  1.158e-06
+RESID float32     0.01 | spring=5.160e-05 |V_old-V_new|=5.160e+00 |V_new-V_ff|=1.003e+01 |V_pred-V_ff|=2.865e-01 |V_ff|=9.454e+02 tanh(V_ff/c)=0.000 rel_factor_err_old=0.000e+00 rel_factor_err_new=0.000e+00 rel_factor_err_pred=0.000e+00
+EL    float32     0.01 | mean(e_L)=+1.0140e-02 std(e_L)=3.058e-04 mean/gamma=+1.0140 std/gamma=0.0306 |mean-gamma|=1.397e-04 rms(e_L)=1.014e-02
+NODES float32     0.01 | spring_k=[2.5e-09 1.5e-10 9.8e-11 2.3e-11 1.1e-10 1.2e-10 2.2e-12 1.8e-12 1.8e-12 1.9e-15 1.8e-15 1.3e-15 3.7e-16 1.3e-18 4.2e-18 5.4e-19 2.3e-17 1.7e-16 6.8e-18 2.4e-16 5.2e-16 2.6e-19 1.4e-17 2.5e-15 1.2e-13 1.4e-07 5.1e-05]
+HDEV  float32     0.01 | |h*-h_ff|/|h_ff|_k=[1.5e-07 5.3e-07 1.2e-06 9.9e-07 7.6e-07 1.8e-06 1.5e-06 1.6e-06 1.8e-06 1.5e-06 1.6e-06 1.6e-06 1.7e-06 2.2e-06 2.5e-06 3.2e-06 2.6e-06 2.7e-06 3.0e-06 2.8e-06 2.8e-06 3.0e-06 2.5e-06 1.5e-06 2.8e-07 2.6e-05 9.3e-02]
+float64      1   0.0001 |  1.000000000  0.999999995    1.684e-08 |  1.000000000  0.999999995  1.951e-08  9.351e-09   1.713e-08 | 1.695e-08 7.743e-09  1.507e-08
+RESID float64   0.0001 | spring=7.537e-08 |V_old-V_new|=7.537e-01 |V_new-V_ff|=1.003e-01 |V_pred-V_ff|=2.895e-01 |V_ff|=9.454e+02 tanh(V_ff/c)=0.000 rel_factor_err_old=0.000e+00 rel_factor_err_new=0.000e+00 rel_factor_err_pred=0.000e+00
+EL    float64   0.0001 | mean(e_L)=+2.3969e-04 std(e_L)=3.057e-04 mean/gamma=+2.3969 std/gamma=3.0570 |mean-gamma|=1.397e-04 rms(e_L)=3.882e-04
+NODES float64   0.0001 | spring_k=[2.4e-13 1.5e-14 9.4e-15 2.5e-15 1.1e-14 1.2e-14 7.3e-16 7.0e-16 6.5e-16 2.0e-17 2.2e-17 2.3e-17 2.0e-17 8.7e-19 6.3e-19 1.2e-19 2.0e-18 5.8e-18 9.8e-19 8.0e-18 1.2e-17 3.1e-19 1.9e-18 3.0e-17 7.4e-16 1.4e-11 7.5e-08]
+HDEV  float64   0.0001 | |h*-h_ff|/|h_ff|_k=[1.5e-09 4.7e-09 9.4e-09 8.0e-09 1.3e-08 5.8e-08 3.5e-08 3.4e-08 3.6e-08 2.5e-08 2.5e-08 2.5e-08 2.6e-08 2.9e-08 3.3e-08 3.8e-08 3.7e-08 3.6e-08 3.9e-08 6.2e-08 6.6e-08 7.6e-08 4.8e-08 2.5e-08 3.4e-09 2.6e-07 3.4e-03]
+float64      1    0.001 |  1.000000000  0.999999953    1.325e-07 |  1.000000000  0.999999948  1.638e-07  9.327e-08   1.346e-07 | 1.347e-07 7.725e-08  1.104e-07
+RESID float64    0.001 | spring=6.975e-07 |V_old-V_new|=6.975e-01 |V_new-V_ff|=1.003e+00 |V_pred-V_ff|=2.892e-01 |V_ff|=9.454e+02 tanh(V_ff/c)=0.000 rel_factor_err_old=0.000e+00 rel_factor_err_new=0.000e+00 rel_factor_err_pred=0.000e+00
+EL    float64    0.001 | mean(e_L)=+1.1397e-03 std(e_L)=3.057e-04 mean/gamma=+1.1397 std/gamma=0.3057 |mean-gamma|=1.397e-04 rms(e_L)=1.180e-03
+NODES float64    0.001 | spring_k=[2.4e-11 1.5e-12 9.4e-13 2.5e-13 1.1e-12 1.2e-12 7.3e-14 7.0e-14 6.5e-14 2.0e-15 2.2e-15 2.3e-15 2.0e-15 8.7e-17 6.3e-17 1.2e-17 2.0e-16 5.8e-16 9.8e-17 8.0e-16 1.2e-15 3.1e-17 1.9e-16 3.0e-15 7.4e-14 1.4e-09 7.0e-07]
+HDEV  float64    0.001 | |h*-h_ff|/|h_ff|_k=[1.5e-08 4.7e-08 9.4e-08 8.0e-08 7.0e-08 1.7e-07 1.2e-07 1.3e-07 1.4e-07 1.1e-07 1.2e-07 1.2e-07 1.2e-07 1.5e-07 1.9e-07 3.1e-07 2.3e-07 2.4e-07 2.8e-07 2.8e-07 2.8e-07 2.9e-07 2.5e-07 1.4e-07 2.4e-08 2.6e-06 1.2e-02]
+float64      1     0.01 |  1.000000000  0.999999532    1.319e-06 |  1.000000000  0.999999482  1.632e-06  9.319e-07   1.340e-06 | 1.342e-06 7.720e-07  1.097e-06
+RESID float64     0.01 | spring=5.160e-05 |V_old-V_new|=5.160e+00 |V_new-V_ff|=1.003e+01 |V_pred-V_ff|=2.864e-01 |V_ff|=9.454e+02 tanh(V_ff/c)=0.000 rel_factor_err_old=0.000e+00 rel_factor_err_new=0.000e+00 rel_factor_err_pred=0.000e+00
+EL    float64     0.01 | mean(e_L)=+1.0140e-02 std(e_L)=3.057e-04 mean/gamma=+1.0140 std/gamma=0.0306 |mean-gamma|=1.397e-04 rms(e_L)=1.014e-02
+NODES float64     0.01 | spring_k=[2.4e-09 1.5e-10 9.4e-11 2.5e-11 1.1e-10 1.2e-10 7.3e-12 7.0e-12 6.5e-12 2.0e-13 2.2e-13 2.3e-13 2.0e-13 8.7e-15 6.3e-15 1.2e-15 2.0e-14 5.8e-14 9.8e-15 8.0e-14 1.2e-13 3.1e-15 1.9e-14 3.0e-13 7.4e-12 1.4e-07 5.1e-05]
+HDEV  float64     0.01 | |h*-h_ff|/|h_ff|_k=[1.5e-07 4.7e-07 9.4e-07 8.0e-07 6.5e-07 1.3e-06 1.0e-06 1.1e-06 1.3e-06 1.1e-06 1.1e-06 1.1e-06 1.2e-06 1.5e-06 1.9e-06 3.1e-06 2.2e-06 2.4e-06 2.8e-06 2.6e-06 2.6e-06 2.7e-06 2.4e-06 1.4e-06 2.4e-07 2.6e-05 9.3e-02]
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
+######## e_L forensics: ImageNet-32, UNCLAMPED, fp32+f64 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/checkpoints_authors/imagenet32x32_warm_up_640000.pt (ema_model) step=640000  B=128 x 4 batches  clamp=None  seed=0
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_1
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/../imagenet/dataset_imagenet32.py:13: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  data_dict = pickle.load(fo)
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_2
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_3
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_4
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_5
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_6
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_7
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_8
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_9
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_10
+[ImageNet32Dataset] Loaded total of 1281167 images.
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  1.000000045  0.999999940    3.743e-07 |  1.000000000  0.999999968  3.979e-07  1.404e-07   3.723e-07 | 3.743e-07 1.396e-07  3.473e-07
+RESID float32   0.0001 | spring=7.298e-08 |V_old-V_new|=7.298e-01 |V_new-V_ff|=1.002e-01 |V_pred-V_ff|=2.760e-01 |V_ff|=9.148e+02 tanh(V_ff/c)=0.000 rel_factor_err_old=0.000e+00 rel_factor_err_new=0.000e+00 rel_factor_err_pred=0.000e+00
+EL    float32   0.0001 | mean(e_L)=+2.8403e-04 std(e_L)=2.557e-04 mean/gamma=+2.8403 std/gamma=2.5572 |mean-gamma|=1.840e-04 rms(e_L)=3.820e-04
+NODES float32   0.0001 | spring_k=[8.6e-15 8.2e-17 9.5e-18 3.4e-19 2.0e-19 1.1e-19 4.0e-22 1.7e-22 1.3e-22 8.3e-25 1.6e-24 1.3e-26 5.2e-26 0.0e+00 0.0e+00 1.3e-29 4.7e-26 2.6e-25 1.8e-25 7.6e-23 2.3e-22 4.3e-26 3.1e-24 3.5e-22 3.2e-21 8.6e-12 7.3e-08]
+HDEV  float32   0.0001 | |h*-h_ff|/|h_ff|_k=[1.7e-10 6.8e-08 3.5e-07 4.5e-07 4.2e-07 1.2e-06 1.1e-06 1.1e-06 1.3e-06 1.3e-06 1.3e-06 1.2e-06 1.2e-06 1.4e-06 1.3e-06 1.1e-06 1.1e-06 1.1e-06 9.2e-07 1.2e-06 1.1e-06 1.1e-06 6.7e-07 4.0e-07 1.2e-07 8.4e-07 2.6e-03]
+float32      1    0.001 |  1.000000075  1.000000000    3.753e-07 |  1.000000000  1.000000006  4.008e-07  1.389e-07   3.760e-07 | 3.753e-07 1.388e-07  3.487e-07
+RESID float32    0.001 | spring=7.346e-07 |V_old-V_new|=7.346e-01 |V_new-V_ff|=1.002e+00 |V_pred-V_ff|=2.754e-01 |V_ff|=9.148e+02 tanh(V_ff/c)=0.000 rel_factor_err_old=0.000e+00 rel_factor_err_new=0.000e+00 rel_factor_err_pred=0.000e+00
+EL    float32    0.001 | mean(e_L)=+1.1840e-03 std(e_L)=2.557e-04 mean/gamma=+1.1840 std/gamma=0.2557 |mean-gamma|=1.840e-04 rms(e_L)=1.211e-03
+NODES float32    0.001 | spring_k=[5.3e-12 7.2e-14 9.5e-15 2.9e-16 1.9e-16 1.2e-16 2.5e-19 2.9e-19 1.6e-19 4.5e-22 1.6e-22 1.7e-23 4.9e-24 5.2e-26 2.7e-25 6.8e-26 4.0e-23 7.2e-22 7.1e-22 9.1e-20 1.8e-19 1.3e-22 4.4e-21 3.6e-19 3.9e-18 1.0e-09 7.3e-07]
+HDEV  float32    0.001 | |h*-h_ff|/|h_ff|_k=[4.5e-09 1.5e-07 4.7e-07 5.4e-07 4.6e-07 1.2e-06 1.1e-06 1.1e-06 1.4e-06 1.3e-06 1.3e-06 1.3e-06 1.3e-06 1.4e-06 1.3e-06 1.1e-06 1.2e-06 1.1e-06 9.3e-07 1.2e-06 1.1e-06 1.1e-06 7.0e-07 4.3e-07 1.2e-07 2.6e-06 8.6e-03]
+float32      1     0.01 |  1.000000060  0.999999672    8.010e-07 |  1.000000000  0.999999705  8.269e-07  5.364e-07   6.293e-07 | 8.049e-07 5.463e-07  5.911e-07
+RESID float32     0.01 | spring=5.199e-05 |V_old-V_new|=5.199e+00 |V_new-V_ff|=1.002e+01 |V_pred-V_ff|=2.689e-01 |V_ff|=9.148e+02 tanh(V_ff/c)=0.000 rel_factor_err_old=0.000e+00 rel_factor_err_new=0.000e+00 rel_factor_err_pred=0.000e+00
+EL    float32     0.01 | mean(e_L)=+1.0184e-02 std(e_L)=2.557e-04 mean/gamma=+1.0184 std/gamma=0.0256 |mean-gamma|=1.840e-04 rms(e_L)=1.019e-02
+NODES float32     0.01 | spring_k=[1.3e-09 2.9e-11 7.5e-12 2.5e-13 1.9e-13 1.2e-13 3.0e-16 2.5e-16 1.6e-16 2.7e-19 1.6e-19 8.0e-20 3.0e-20 6.2e-23 4.2e-21 4.4e-21 9.4e-20 7.7e-19 6.0e-19 8.5e-17 1.6e-16 1.3e-19 6.0e-18 4.0e-16 3.4e-15 9.9e-08 5.2e-05]
+HDEV  float32     0.01 | |h*-h_ff|/|h_ff|_k=[7.0e-08 3.3e-07 7.3e-07 7.7e-07 6.6e-07 1.5e-06 1.4e-06 1.4e-06 1.6e-06 1.5e-06 1.5e-06 1.5e-06 1.5e-06 1.6e-06 1.5e-06 1.4e-06 1.4e-06 1.4e-06 1.1e-06 1.5e-06 1.4e-06 1.3e-06 9.2e-07 6.1e-07 1.8e-07 2.5e-05 6.9e-02]
+float64      1   0.0001 |  1.000000000  0.999999997    1.106e-08 |  1.000000000  0.999999997  1.163e-08  4.944e-09   1.053e-08 | 1.114e-08 5.033e-09  9.940e-09
+RESID float64   0.0001 | spring=7.294e-08 |V_old-V_new|=7.294e-01 |V_new-V_ff|=1.002e-01 |V_pred-V_ff|=2.759e-01 |V_ff|=9.148e+02 tanh(V_ff/c)=0.000 rel_factor_err_old=0.000e+00 rel_factor_err_new=0.000e+00 rel_factor_err_pred=0.000e+00
+EL    float64   0.0001 | mean(e_L)=+2.8403e-04 std(e_L)=2.556e-04 mean/gamma=+2.8403 std/gamma=2.5557 |mean-gamma|=1.840e-04 rms(e_L)=3.819e-04
+NODES float64   0.0001 | spring_k=[1.2e-13 3.7e-15 1.2e-15 1.7e-16 1.7e-16 9.0e-17 3.0e-18 3.0e-18 1.9e-18 5.7e-20 5.8e-20 4.9e-20 2.1e-20 2.4e-21 5.2e-21 4.1e-21 5.9e-20 1.7e-19 1.4e-19 2.8e-18 4.5e-18 1.7e-19 1.2e-18 1.3e-17 1.3e-16 9.9e-12 7.3e-08]
+HDEV  float64   0.0001 | |h*-h_ff|/|h_ff|_k=[6.8e-10 2.4e-09 4.1e-09 3.9e-09 1.4e-08 5.4e-08 3.9e-08 3.7e-08 4.0e-08 3.0e-08 2.9e-08 2.8e-08 2.8e-08 2.5e-08 2.3e-08 2.0e-08 2.5e-08 2.3e-08 1.7e-08 6.2e-08 6.2e-08 6.0e-08 3.2e-08 1.6e-08 2.7e-09 2.5e-07 2.6e-03]
+float64      1    0.001 |  1.000000000  0.999999974    6.894e-08 |  1.000000000  0.999999974  7.056e-08  4.931e-08   5.047e-08 | 6.938e-08 5.028e-08  4.780e-08
+RESID float64    0.001 | spring=7.346e-07 |V_old-V_new|=7.346e-01 |V_new-V_ff|=1.002e+00 |V_pred-V_ff|=2.753e-01 |V_ff|=9.148e+02 tanh(V_ff/c)=0.000 rel_factor_err_old=0.000e+00 rel_factor_err_new=0.000e+00 rel_factor_err_pred=0.000e+00
+EL    float64    0.001 | mean(e_L)=+1.1840e-03 std(e_L)=2.556e-04 mean/gamma=+1.1840 std/gamma=0.2556 |mean-gamma|=1.840e-04 rms(e_L)=1.211e-03
+NODES float64    0.001 | spring_k=[1.2e-11 3.7e-13 1.2e-13 1.7e-14 1.7e-14 9.0e-15 3.0e-16 3.0e-16 1.9e-16 5.7e-18 5.8e-18 4.9e-18 2.1e-18 2.4e-19 5.2e-19 4.1e-19 5.9e-18 1.7e-17 1.4e-17 2.8e-16 4.5e-16 1.7e-17 1.2e-16 1.3e-15 1.3e-14 9.9e-10 7.3e-07]
+HDEV  float64    0.001 | |h*-h_ff|/|h_ff|_k=[6.8e-09 2.4e-08 4.1e-08 3.9e-08 5.1e-08 1.2e-07 9.3e-08 9.1e-08 1.0e-07 8.5e-08 8.4e-08 8.2e-08 8.2e-08 8.1e-08 8.7e-08 8.1e-08 8.4e-08 8.4e-08 7.2e-08 1.2e-07 1.2e-07 1.0e-07 6.7e-08 4.4e-08 1.0e-08 2.5e-06 8.6e-03]
+float64      1     0.01 |  1.000000000  0.999999740    6.824e-07 |  1.000000000  0.999999739  6.970e-07  4.932e-07   4.925e-07 | 6.870e-07 5.030e-07  4.679e-07
+RESID float64     0.01 | spring=5.199e-05 |V_old-V_new|=5.199e+00 |V_new-V_ff|=1.002e+01 |V_pred-V_ff|=2.688e-01 |V_ff|=9.148e+02 tanh(V_ff/c)=0.000 rel_factor_err_old=0.000e+00 rel_factor_err_new=0.000e+00 rel_factor_err_pred=0.000e+00
+EL    float64     0.01 | mean(e_L)=+1.0184e-02 std(e_L)=2.556e-04 mean/gamma=+1.0184 std/gamma=0.0256 |mean-gamma|=1.840e-04 rms(e_L)=1.019e-02
+NODES float64     0.01 | spring_k=[1.2e-09 3.7e-11 1.2e-11 1.7e-12 1.7e-12 9.0e-13 3.0e-14 3.0e-14 1.9e-14 5.7e-16 5.8e-16 4.9e-16 2.1e-16 2.4e-17 5.2e-17 4.1e-17 5.9e-16 1.7e-15 1.4e-15 2.8e-14 4.5e-14 1.7e-15 1.2e-14 1.3e-13 1.3e-12 9.9e-08 5.2e-05]
+HDEV  float64     0.01 | |h*-h_ff|/|h_ff|_k=[6.8e-08 2.4e-07 4.1e-07 3.9e-07 3.9e-07 7.0e-07 6.2e-07 6.3e-07 7.2e-07 6.5e-07 6.5e-07 6.4e-07 6.5e-07 6.8e-07 7.6e-07 7.2e-07 7.0e-07 7.3e-07 6.5e-07 7.3e-07 7.2e-07 6.3e-07 5.2e-07 3.7e-07 9.6e-08 2.5e-05 6.9e-02]
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
+######## e_L forensics: ImageNet-32, FOLDED c=1e4, fp32+f64 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/checkpoints_authors/imagenet32x32_warm_up_640000.pt (ema_model) step=640000  B=128 x 4 batches  clamp=10000.0  seed=0
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_1
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/../imagenet/dataset_imagenet32.py:13: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  data_dict = pickle.load(fo)
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_2
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_3
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_4
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_5
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_6
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_7
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_8
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_9
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_10
+[ImageNet32Dataset] Loaded total of 1281167 images.
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  1.000000015  1.000000000    3.822e-07 |  1.000000000  1.000000004  4.086e-07  1.624e-07   3.750e-07 | 3.823e-07 1.610e-07  3.467e-07
+RESID float32   0.0001 | spring=7.160e-08 |V_old-V_new|=7.160e-01 |V_new-V_ff|=1.002e-01 |V_pred-V_ff|=2.728e-01 |V_ff|=9.098e+02 tanh(V_ff/c)=0.090 rel_factor_err_old=1.161e-05 rel_factor_err_new=1.813e-06 rel_factor_err_pred=5.004e-06
+EL    float32   0.0001 | mean(e_L)=+2.8295e-04 std(e_L)=2.515e-04 mean/gamma=+2.8295 std/gamma=2.5148 |mean-gamma|=1.830e-04 rms(e_L)=3.784e-04
+NODES float32   0.0001 | spring_k=[8.1e-15 7.7e-17 9.4e-18 3.2e-19 1.9e-19 1.1e-19 4.0e-22 1.7e-22 1.3e-22 8.4e-25 1.6e-24 5.2e-26 5.2e-26 0.0e+00 0.0e+00 0.0e+00 4.3e-26 3.1e-25 2.0e-25 9.0e-23 2.3e-22 2.8e-26 3.0e-24 3.4e-22 2.9e-21 8.5e-12 7.2e-08]
+HDEV  float32   0.0001 | |h*-h_ff|/|h_ff|_k=[1.6e-10 6.8e-08 3.5e-07 4.5e-07 4.2e-07 1.2e-06 1.1e-06 1.1e-06 1.3e-06 1.3e-06 1.3e-06 1.2e-06 1.2e-06 1.4e-06 1.3e-06 1.1e-06 1.1e-06 1.1e-06 9.2e-07 1.2e-06 1.1e-06 1.1e-06 6.7e-07 4.0e-07 1.2e-07 8.4e-07 2.6e-03]
+float32      1    0.001 |  0.999999970  1.000000089    3.861e-07 |  1.000000000  1.000000040  4.131e-07  1.697e-07   3.767e-07 | 3.862e-07 1.699e-07  3.469e-07
+RESID float32    0.001 | spring=7.323e-07 |V_old-V_new|=7.323e-01 |V_new-V_ff|=1.002e+00 |V_pred-V_ff|=2.721e-01 |V_ff|=9.098e+02 tanh(V_ff/c)=0.090 rel_factor_err_old=6.456e-06 rel_factor_err_new=1.813e-05 rel_factor_err_pred=5.001e-06
+EL    float32    0.001 | mean(e_L)=+1.1830e-03 std(e_L)=2.515e-04 mean/gamma=+1.1830 std/gamma=0.2515 |mean-gamma|=1.830e-04 rms(e_L)=1.209e-03
+NODES float32    0.001 | spring_k=[5.1e-12 6.9e-14 9.2e-15 2.7e-16 1.9e-16 1.2e-16 2.5e-19 2.8e-19 1.5e-19 4.4e-22 1.6e-22 6.9e-23 4.9e-24 1.6e-26 2.5e-25 4.1e-26 3.6e-23 7.2e-22 7.0e-22 8.9e-20 1.7e-19 1.4e-22 4.3e-21 3.4e-19 3.7e-18 9.7e-10 7.3e-07]
+HDEV  float32    0.001 | |h*-h_ff|/|h_ff|_k=[4.4e-09 1.4e-07 4.7e-07 5.4e-07 4.6e-07 1.2e-06 1.1e-06 1.1e-06 1.4e-06 1.3e-06 1.3e-06 1.3e-06 1.3e-06 1.4e-06 1.3e-06 1.1e-06 1.1e-06 1.1e-06 9.3e-07 1.2e-06 1.1e-06 1.1e-06 7.0e-07 4.3e-07 1.2e-07 2.6e-06 8.6e-03]
+float32      1     0.01 |  1.000000045  0.999999762    6.471e-07 |  1.000000000  0.999999794  7.022e-07  3.396e-07   6.147e-07 | 6.514e-07 3.184e-07  5.682e-07
+RESID float32     0.01 | spring=5.198e-05 |V_old-V_new|=5.198e+00 |V_new-V_ff|=1.002e+01 |V_pred-V_ff|=2.656e-01 |V_ff|=9.098e+02 tanh(V_ff/c)=0.090 rel_factor_err_old=8.826e-05 rel_factor_err_new=1.813e-04 rel_factor_err_pred=4.979e-06
+EL    float32     0.01 | mean(e_L)=+1.0183e-02 std(e_L)=2.515e-04 mean/gamma=+1.0183 std/gamma=0.0252 |mean-gamma|=1.830e-04 rms(e_L)=1.019e-02
+NODES float32     0.01 | spring_k=[1.2e-09 2.9e-11 7.4e-12 2.5e-13 1.9e-13 1.2e-13 3.0e-16 2.4e-16 1.6e-16 2.7e-19 1.5e-19 8.0e-20 3.0e-20 5.9e-23 4.2e-21 4.2e-21 9.4e-20 7.7e-19 6.0e-19 8.3e-17 1.6e-16 1.3e-19 5.8e-18 3.8e-16 3.3e-15 9.7e-08 5.2e-05]
+HDEV  float32     0.01 | |h*-h_ff|/|h_ff|_k=[6.9e-08 3.2e-07 7.3e-07 7.6e-07 6.6e-07 1.5e-06 1.3e-06 1.4e-06 1.6e-06 1.5e-06 1.5e-06 1.5e-06 1.5e-06 1.6e-06 1.5e-06 1.3e-06 1.4e-06 1.4e-06 1.1e-06 1.5e-06 1.4e-06 1.3e-06 9.1e-07 6.1e-07 1.7e-07 2.5e-05 6.9e-02]
+float64      1   0.0001 |  1.000000000  0.999999998    9.883e-09 |  1.000000000  0.999999998  1.075e-08  2.953e-09   1.034e-08 | 9.955e-09 2.708e-09  9.580e-09
+RESID float64   0.0001 | spring=7.158e-08 |V_old-V_new|=7.158e-01 |V_new-V_ff|=1.002e-01 |V_pred-V_ff|=2.727e-01 |V_ff|=9.098e+02 tanh(V_ff/c)=0.090 rel_factor_err_old=1.160e-05 rel_factor_err_new=1.813e-06 rel_factor_err_pred=5.001e-06
+EL    float64   0.0001 | mean(e_L)=+2.8296e-04 std(e_L)=2.514e-04 mean/gamma=+2.8296 std/gamma=2.5138 |mean-gamma|=1.830e-04 rms(e_L)=3.783e-04
+NODES float64   0.0001 | spring_k=[1.2e-13 3.6e-15 1.1e-15 1.7e-16 1.6e-16 8.9e-17 2.9e-18 3.0e-18 1.9e-18 5.6e-20 5.8e-20 4.8e-20 2.1e-20 2.4e-21 5.1e-21 4.0e-21 5.8e-20 1.7e-19 1.4e-19 2.7e-18 4.4e-18 1.7e-19 1.2e-18 1.3e-17 1.3e-16 9.7e-12 7.2e-08]
+HDEV  float64   0.0001 | |h*-h_ff|/|h_ff|_k=[6.7e-10 2.4e-09 4.1e-09 3.9e-09 1.4e-08 5.4e-08 3.9e-08 3.7e-08 4.0e-08 3.0e-08 2.9e-08 2.8e-08 2.8e-08 2.5e-08 2.3e-08 2.0e-08 2.5e-08 2.2e-08 1.7e-08 6.2e-08 6.1e-08 6.0e-08 3.2e-08 1.6e-08 2.7e-09 2.5e-07 2.6e-03]
+float64      1    0.001 |  1.000000000  0.999999981    5.205e-08 |  1.000000000  0.999999980  5.722e-08  2.954e-08   4.901e-08 | 5.271e-08 2.701e-08  4.526e-08
+RESID float64    0.001 | spring=7.322e-07 |V_old-V_new|=7.322e-01 |V_new-V_ff|=1.002e+00 |V_pred-V_ff|=2.720e-01 |V_ff|=9.098e+02 tanh(V_ff/c)=0.090 rel_factor_err_old=6.455e-06 rel_factor_err_new=1.813e-05 rel_factor_err_pred=4.998e-06
+EL    float64    0.001 | mean(e_L)=+1.1830e-03 std(e_L)=2.514e-04 mean/gamma=+1.1830 std/gamma=0.2514 |mean-gamma|=1.830e-04 rms(e_L)=1.209e-03
+NODES float64    0.001 | spring_k=[1.2e-11 3.6e-13 1.1e-13 1.7e-14 1.6e-14 8.9e-15 2.9e-16 3.0e-16 1.9e-16 5.6e-18 5.8e-18 4.8e-18 2.1e-18 2.4e-19 5.1e-19 4.0e-19 5.8e-18 1.7e-17 1.4e-17 2.7e-16 4.4e-16 1.7e-17 1.2e-16 1.3e-15 1.3e-14 9.7e-10 7.3e-07]
+HDEV  float64    0.001 | |h*-h_ff|/|h_ff|_k=[6.7e-09 2.4e-08 4.1e-08 3.9e-08 5.1e-08 1.2e-07 9.2e-08 9.0e-08 1.0e-07 8.4e-08 8.3e-08 8.1e-08 8.1e-08 8.0e-08 8.6e-08 8.0e-08 8.3e-08 8.3e-08 7.1e-08 1.2e-07 1.1e-07 1.0e-07 6.7e-08 4.3e-08 1.0e-08 2.5e-06 8.6e-03]
+float64      1     0.01 |  1.000000000  0.999999809    5.109e-07 |  1.000000000  0.999999797  5.618e-07  2.950e-07   4.781e-07 | 5.182e-07 2.699e-07  4.424e-07
+RESID float64     0.01 | spring=5.198e-05 |V_old-V_new|=5.198e+00 |V_new-V_ff|=1.002e+01 |V_pred-V_ff|=2.655e-01 |V_ff|=9.098e+02 tanh(V_ff/c)=0.090 rel_factor_err_old=8.826e-05 rel_factor_err_new=1.813e-04 rel_factor_err_pred=4.976e-06
+EL    float64     0.01 | mean(e_L)=+1.0183e-02 std(e_L)=2.514e-04 mean/gamma=+1.0183 std/gamma=0.0251 |mean-gamma|=1.830e-04 rms(e_L)=1.019e-02
+NODES float64     0.01 | spring_k=[1.2e-09 3.6e-11 1.1e-11 1.7e-12 1.6e-12 8.9e-13 2.9e-14 3.0e-14 1.9e-14 5.6e-16 5.8e-16 4.8e-16 2.1e-16 2.4e-17 5.1e-17 4.0e-17 5.8e-16 1.7e-15 1.4e-15 2.7e-14 4.4e-14 1.7e-15 1.2e-14 1.3e-13 1.3e-12 9.7e-08 5.2e-05]
+HDEV  float64     0.01 | |h*-h_ff|/|h_ff|_k=[6.7e-08 2.4e-07 4.1e-07 3.9e-07 3.8e-07 6.9e-07 6.1e-07 6.2e-07 7.1e-07 6.4e-07 6.4e-07 6.3e-07 6.4e-07 6.7e-07 7.5e-07 7.1e-07 6.9e-07 7.2e-07 6.4e-07 7.2e-07 7.1e-07 6.2e-07 5.1e-07 3.7e-07 9.5e-08 2.5e-05 6.9e-02]
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).

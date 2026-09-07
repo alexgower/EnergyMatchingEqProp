@@ -26,3 +26,8 @@ results_*/**/*.pt
 
 
 results_*/**/*.INFO
+
+results_*/in_paper/**/old_batch_level/
+results_*/in_paper/**/_check_*
+results_*/in_paper/**/CHANGELOG.md
+SUMMARY_CHANGELOG.md

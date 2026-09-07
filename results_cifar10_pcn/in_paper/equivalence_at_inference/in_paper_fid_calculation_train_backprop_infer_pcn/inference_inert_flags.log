@@ -1,0 +1,13 @@
+                            config    max |v - v_ref|  bitwise equal
+ T_free=14, n_cg=3  (the FID runs)            0.0e+00      reference
+      CONTROL: same flags, rebuilt            4.8e-07          False
+                          T_free=1            4.8e-07          False
+                        T_free=100            4.8e-07          False
+                            n_cg=1            4.8e-07          False
+                           n_cg=50            7.2e-07          False
+                  T_free=1, n_cg=1            7.2e-07          False
+
+READ: compare every row against the CONTROL. Differences at the control's
+level = kernel nondeterminism, so the flag is inert. A difference well
+ABOVE the control = the flag actually changes the sampler.
+Exit code: 0

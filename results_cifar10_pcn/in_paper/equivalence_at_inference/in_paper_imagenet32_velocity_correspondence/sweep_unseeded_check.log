@@ -1,0 +1,99 @@
+######## ImageNet-32 unclamped fp32, K_h=1, UNSEEDED pairing, rep 1 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/checkpoints_authors/imagenet32x32_warm_up_640000.pt (ema_model) step=640000  B=128 x 4 batches  clamp=None  seed=0
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_1
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/../imagenet/dataset_imagenet32.py:13: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  data_dict = pickle.load(fo)
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_2
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_3
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_4
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_5
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_6
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_7
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_8
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_9
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_10
+[ImageNet32Dataset] Loaded total of 1281167 images.
+DIAG_NOSEED=1: numpy left unseeded (OT pairing random)
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  1.000000030  0.999999940    3.975e-07 |  1.000000000  0.999999975  4.360e-07  1.483e-07   4.100e-07 | 3.992e-07 1.447e-07  3.720e-07
+float32      1   0.0003 |  0.999999985  1.000000060    4.182e-07 |  1.000000000  1.000000044  4.690e-07  1.759e-07   4.348e-07 | 4.214e-07 1.648e-07  3.878e-07
+float32      1    0.001 |  0.999999985  1.000000000    4.111e-07 |  1.000000000  1.000000009  4.664e-07  1.756e-07   4.321e-07 | 4.165e-07 1.636e-07  3.830e-07
+float32      1    0.003 |  1.000000000  0.999999911    4.354e-07 |  1.000000000  0.999999951  4.806e-07  2.037e-07   4.353e-07 | 4.394e-07 2.022e-07  3.901e-07
+float32      1     0.01 |  1.000000030  0.999999657    7.785e-07 |  1.000000000  0.999999688  8.327e-07  5.439e-07   6.305e-07 | 7.863e-07 5.522e-07  5.598e-07
+float32      1     0.03 |  1.000000030  0.999999091    1.983e-06 |  1.000000000  0.999999159  2.093e-06  1.504e-06   1.455e-06 | 2.002e-06 1.536e-06  1.284e-06
+float32      1      0.1 |  0.999999970  0.999997243    6.429e-06 |  1.000000000  0.999997313  6.763e-06  4.940e-06   4.618e-06 | 6.492e-06 5.052e-06  4.078e-06
+float32      1      0.3 |  0.999999985  0.999991700    1.926e-05 |  1.000000000  0.999991920  2.025e-05  1.483e-05   1.378e-05 | 1.945e-05 1.517e-05  1.217e-05
+float32      1      1.0 |  0.999999985  0.999972284    6.418e-05 |  0.999999999  0.999973066  6.743e-05  4.940e-05   4.590e-05 | 6.479e-05 5.053e-05  4.055e-05
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
+######## ImageNet-32 unclamped fp32, K_h=1, UNSEEDED pairing, rep 2 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/checkpoints_authors/imagenet32x32_warm_up_640000.pt (ema_model) step=640000  B=128 x 4 batches  clamp=None  seed=0
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_1
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/../imagenet/dataset_imagenet32.py:13: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  data_dict = pickle.load(fo)
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_2
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_3
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_4
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_5
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_6
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_7
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_8
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_9
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_10
+[ImageNet32Dataset] Loaded total of 1281167 images.
+DIAG_NOSEED=1: numpy left unseeded (OT pairing random)
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  0.999999970  1.000000000    3.771e-07 |  1.000000000  0.999999970  4.189e-07  1.442e-07   3.933e-07 | 3.771e-07 1.430e-07  3.489e-07
+float32      1   0.0003 |  1.000000000  1.000000030    3.830e-07 |  1.000000000  1.000000042  4.275e-07  1.470e-07   4.014e-07 | 3.831e-07 1.456e-07  3.543e-07
+float32      1    0.001 |  1.000000000  1.000000000    3.784e-07 |  1.000000000  1.000000008  4.229e-07  1.491e-07   3.958e-07 | 3.785e-07 1.480e-07  3.484e-07
+float32      1    0.003 |  0.999999985  0.999999970    4.175e-07 |  1.000000000  0.999999960  4.631e-07  2.059e-07   4.148e-07 | 4.175e-07 2.066e-07  3.629e-07
+float32      1     0.01 |  0.999999985  0.999999687    7.571e-07 |  1.000000000  0.999999711  8.040e-07  5.482e-07   5.882e-07 | 7.579e-07 5.569e-07  5.140e-07
+float32      1     0.03 |  1.000000015  0.999999195    1.938e-06 |  1.000000000  0.999999216  2.024e-06  1.523e-06   1.333e-06 | 1.943e-06 1.548e-06  1.174e-06
+float32      1      0.1 |  1.000000015  0.999997377    6.297e-06 |  1.000000000  0.999997470  6.564e-06  4.997e-06   4.256e-06 | 6.316e-06 5.082e-06  3.750e-06
+float32      1      0.3 |  1.000000015  0.999992147    1.888e-05 |  1.000000000  0.999992358  1.966e-05  1.501e-05   1.270e-05 | 1.894e-05 1.526e-05  1.121e-05
+float32      1      1.0 |  0.999999985  0.999973878    6.288e-05 |  0.999999999  0.999974539  6.548e-05  4.994e-05   4.235e-05 | 6.308e-05 5.080e-05  3.739e-05
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
+######## ImageNet-32 unclamped fp32, K_h=1, UNSEEDED pairing, rep 3 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/checkpoints_authors/imagenet32x32_warm_up_640000.pt (ema_model) step=640000  B=128 x 4 batches  clamp=None  seed=0
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_1
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/../imagenet/dataset_imagenet32.py:13: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  data_dict = pickle.load(fo)
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_2
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_3
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_4
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_5
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_6
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_7
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_8
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_9
+[ImageNet32Dataset] Loading: /rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/imagenet/data/Imagenet32_train/train_data_batch_10
+[ImageNet32Dataset] Loaded total of 1281167 images.
+DIAG_NOSEED=1: numpy left unseeded (OT pairing random)
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  0.999999955  0.999999970    4.778e-07 |  1.000000000  0.999999961  4.920e-07  1.551e-07   4.669e-07 | 4.865e-07 1.533e-07  4.617e-07
+float32      1   0.0003 |  0.999999970  1.000000030    4.952e-07 |  1.000000000  1.000000032  5.081e-07  1.591e-07   4.825e-07 | 5.121e-07 1.617e-07  4.859e-07
+float32      1    0.001 |  1.000000015  0.999999970    5.369e-07 |  1.000000000  0.999999999  5.537e-07  1.878e-07   5.209e-07 | 5.649e-07 1.957e-07  5.299e-07
+float32      1    0.003 |  0.999999955  0.999999970    7.495e-07 |  1.000000000  0.999999942  7.854e-07  2.452e-07   7.461e-07 | 8.398e-07 2.573e-07  7.994e-07
+float32      1     0.01 |  0.999999985  0.999999672    1.876e-06 |  1.000000000  0.999999677  2.044e-06  5.961e-07   1.955e-06 | 2.265e-06 6.220e-07  2.178e-06
+float32      1     0.03 |  1.000000030  0.999999076    5.332e-06 |  1.000000000  0.999999102  5.894e-06  1.607e-06   5.670e-06 | 6.571e-06 1.659e-06  6.358e-06
+float32      1      0.1 |  1.000000030  0.999997020    1.767e-05 |  1.000000000  0.999997118  1.956e-05  5.222e-06   1.885e-05 | 2.183e-05 5.379e-06  2.116e-05
+float32      1      0.3 |  0.999999985  0.999991044    5.308e-05 |  0.999999998  0.999991326  5.877e-05  1.563e-05   5.665e-05 | 6.558e-05 1.608e-05  6.358e-05
+float32      1      1.0 |  1.000000015  0.999970093    1.776e-04 |  0.999999982  0.999971077  1.968e-04  5.221e-05   1.897e-04 | 2.196e-04 5.374e-05  2.129e-04
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).

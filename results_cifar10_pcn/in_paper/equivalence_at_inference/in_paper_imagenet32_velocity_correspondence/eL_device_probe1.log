@@ -1,0 +1,23 @@
+######## GPU ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=4 x 1 batches  clamp=None  seed=0
+  entry = pickle.load(f, encoding="latin1")
+
+device=cuda gamma_code=0.001 B=4 dtype=torch.float64
+ i     t_i      o_ebvit       o_scan   pred_L(h*)         h_L*          e_L   e_L-gamma  o_scan-o_ebvit  predL-o_scan
+ 0  0.4963   0.45474243   0.45474228   0.45473931   0.45363577   1.1035e-03  +1.035e-04      -1.517e-07    -2.965e-06
+ 1  0.7682  -0.46294338  -0.46294249  -0.46294534  -0.46438603   1.4407e-03  +4.407e-04      +8.846e-07    -2.853e-06
+ 2  0.0885   1.83931029   1.83931041   1.83930740   1.83856055   7.4685e-04  -2.531e-04      +1.200e-07    -3.005e-06
+ 3  0.1320   1.69316101   1.69316101   1.69315801   1.69239413   7.6388e-04  -2.361e-04      +3.661e-09    -3.004e-06
+interpretation: e_L-gamma ~ 1e-7 => no offset on this device; ~1e-4 => the offset. predL-o_scan ~ gamma => relaxed parents moved the prediction by the expected tilt only; o_scan-o_ebvit ~ 1e-12 (f64) => the PCN's f_L IS the FFN's f_L on this device.
+######## CPU (same node, GPU hidden) ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=4 x 1 batches  clamp=None  seed=0
+  entry = pickle.load(f, encoding="latin1")
+
+device=cpu gamma_code=0.001 B=4 dtype=torch.float64
+ i     t_i      o_ebvit       o_scan   pred_L(h*)         h_L*          e_L   e_L-gamma  o_scan-o_ebvit  predL-o_scan
+ 0  0.5517   0.26653358   0.26653414   0.26653120   0.26553120   1.0000e-03  -4.432e-16      +5.590e-07    -2.945e-06
+ 1  0.5624   0.22952695   0.22952718   0.22952424   0.22852424   1.0000e-03  +8.674e-19      +2.299e-07    -2.941e-06
+ 2  0.4897   0.48063561   0.48063555   0.48063259   0.47963259   1.0000e-03  +8.890e-16      -6.474e-08    -2.963e-06
+ 3  0.1152   1.76750970   1.76750937   1.76750637   1.76650637   1.0000e-03  -5.542e-16      -3.257e-07    -3.002e-06
+interpretation: e_L-gamma ~ 1e-7 => no offset on this device; ~1e-4 => the offset. predL-o_scan ~ gamma => relaxed parents moved the prediction by the expected tilt only; o_scan-o_ebvit ~ 1e-12 (f64) => the PCN's f_L IS the FFN's f_L on this device.
+Exit code: 0

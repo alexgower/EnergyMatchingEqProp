@@ -1,0 +1,66 @@
+######## CIFAR-10 unclamped fp32, K_h=1, UNSEEDED pairing, rep 1 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_velocity_correspondence_gamma_grid/../in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=128 x 4 batches  clamp=None  seed=0
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchvision/datasets/cifar.py:83: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  entry = pickle.load(f, encoding="latin1")
+DIAG_NOSEED=1: numpy left unseeded (OT pairing random)
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  1.000000060  0.999999970    4.290e-07 |  1.000000000  0.999999954  4.996e-07  1.413e-07   4.792e-07 | 4.293e-07 1.347e-07  4.076e-07
+float32      1   0.0003 |  1.000000075  1.000000000    4.343e-07 |  1.000000000  1.000000009  5.185e-07  1.493e-07   4.966e-07 | 4.348e-07 1.373e-07  4.126e-07
+float32      1    0.001 |  1.000000045  1.000000000    4.783e-07 |  1.000000000  0.999999984  6.786e-07  2.401e-07   6.347e-07 | 4.832e-07 1.764e-07  4.499e-07
+float32      1    0.003 |  0.999999985  0.999999881    7.747e-07 |  1.000000000  0.999999857  1.542e-06  6.227e-07   1.410e-06 | 8.359e-07 3.445e-07  7.617e-07
+float32      1     0.01 |  1.000000030  0.999999449    2.224e-06 |  1.000000000  0.999999336  5.009e-06  2.133e-06   4.532e-06 | 2.525e-06 1.163e-06  2.241e-06
+float32      1     0.03 |  1.000000060  0.999998420    6.550e-06 |  1.000000000  0.999998086  1.493e-05  6.373e-06   1.350e-05 | 7.474e-06 3.448e-06  6.631e-06
+float32      1      0.1 |  1.000000015  0.999994993    2.176e-05 |  0.999999999  0.999993774  4.985e-05  2.123e-05   4.510e-05 | 2.489e-05 1.144e-05  2.210e-05
+float32      1      0.3 |  1.000000060  0.999984935    6.528e-05 |  0.999999991  0.999981365  1.495e-04  6.354e-05   1.354e-04 | 7.465e-05 3.422e-05  6.635e-05
+float32      1      1.0 |  0.999999970  0.999949723    2.178e-04 |  0.999999897  0.999937772  4.991e-04  2.108e-04   4.524e-04 | 2.491e-04 1.138e-04  2.216e-04
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
+######## CIFAR-10 unclamped fp32, K_h=1, UNSEEDED pairing, rep 2 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_velocity_correspondence_gamma_grid/../in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=128 x 4 batches  clamp=None  seed=0
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchvision/datasets/cifar.py:83: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  entry = pickle.load(f, encoding="latin1")
+DIAG_NOSEED=1: numpy left unseeded (OT pairing random)
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  1.000000000  0.999999911    4.212e-07 |  1.000000000  0.999999959  4.565e-07  1.490e-07   4.315e-07 | 4.214e-07 1.421e-07  3.967e-07
+float32      1   0.0003 |  0.999999955  1.000000000    4.199e-07 |  1.000000000  1.000000021  4.585e-07  1.500e-07   4.333e-07 | 4.199e-07 1.423e-07  3.950e-07
+float32      1    0.001 |  0.999999985  0.999999970    4.526e-07 |  1.000000000  0.999999993  5.157e-07  2.087e-07   4.716e-07 | 4.530e-07 1.750e-07  4.178e-07
+float32      1    0.003 |  0.999999970  0.999999851    6.542e-07 |  1.000000000  0.999999878  8.234e-07  4.128e-07   7.125e-07 | 6.606e-07 2.973e-07  5.899e-07
+float32      1     0.01 |  0.999999970  0.999999449    1.876e-06 |  1.000000000  0.999999415  2.396e-06  1.303e-06   2.011e-06 | 1.942e-06 9.702e-07  1.682e-06
+float32      1     0.03 |  1.000000000  0.999998569    5.528e-06 |  1.000000000  0.999998336  7.021e-06  3.781e-06   5.916e-06 | 5.769e-06 2.838e-06  5.022e-06
+float32      1      0.1 |  0.999999970  0.999995425    1.843e-05 |  1.000000000  0.999994614  2.341e-05  1.260e-05   1.973e-05 | 1.924e-05 9.429e-06  1.677e-05
+float32      1      0.3 |  0.999999985  0.999986336    5.526e-05 |  0.999999998  0.999983836  7.021e-05  3.776e-05   5.919e-05 | 5.769e-05 2.824e-05  5.030e-05
+float32      1      1.0 |  0.999999955  0.999954358    1.839e-04 |  0.999999981  0.999945952  2.339e-04  1.260e-04   1.970e-04 | 1.919e-04 9.418e-05  1.672e-04
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
+######## CIFAR-10 unclamped fp32, K_h=1, UNSEEDED pairing, rep 3 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_velocity_correspondence_gamma_grid/../in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=128 x 4 batches  clamp=None  seed=0
+/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchvision/datasets/cifar.py:83: VisibleDeprecationWarning: dtype(): align should be passed as Python or NumPy boolean but got `align=0`. Did you mean to pass a tuple to create a subarray type? (Deprecated NumPy 2.4)
+  entry = pickle.load(f, encoding="latin1")
+DIAG_NOSEED=1: numpy left unseeded (OT pairing random)
+
+  dtype    K_h    gamma |      v_cos norm_ratio rel_L2_err |       ps_cos     ps_ratio ps_rel_rms ps_par_rms ps_perp_rms |    nw_rel    nw_par    nw_perp
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+float32      1   0.0001 |  0.999999970  0.999999911    4.198e-07 |  1.000000000  0.999999959  4.575e-07  1.628e-07   4.275e-07 | 4.203e-07 1.505e-07  3.924e-07
+float32      1   0.0003 |  1.000000015  1.000000030    4.184e-07 |  1.000000000  1.000000015  4.548e-07  1.487e-07   4.298e-07 | 4.186e-07 1.409e-07  3.942e-07
+float32      1    0.001 |  0.999999985  1.000000000    4.447e-07 |  1.000000000  0.999999989  5.140e-07  2.086e-07   4.698e-07 | 4.457e-07 1.740e-07  4.103e-07
+float32      1    0.003 |  1.000000000  0.999999881    5.908e-07 |  1.000000000  0.999999874  7.530e-07  3.358e-07   6.740e-07 | 5.948e-07 2.656e-07  5.322e-07
+float32      1     0.01 |  0.999999985  0.999999478    1.589e-06 |  1.000000000  0.999999397  2.150e-06  1.132e-06   1.828e-06 | 1.609e-06 8.753e-07  1.351e-06
+float32      1     0.03 |  1.000000000  0.999998480    4.668e-06 |  1.000000000  0.999998282  6.371e-06  3.350e-06   5.419e-06 | 4.734e-06 2.571e-06  3.975e-06
+float32      1      0.1 |  1.000000030  0.999995172    1.547e-05 |  1.000000000  0.999994465  2.114e-05  1.108e-05   1.801e-05 | 1.569e-05 8.474e-06  1.321e-05
+float32      1      0.3 |  0.999999970  0.999985591    4.642e-05 |  0.999999999  0.999983388  6.345e-05  3.322e-05   5.406e-05 | 4.708e-05 2.539e-05  3.964e-05
+float32      1      1.0 |  1.000000045  0.999951795    1.548e-04 |  0.999999984  0.999944515  2.115e-04  1.107e-04   1.802e-04 | 1.570e-04 8.473e-05  1.322e-04
+
+Read: cos -> 1 and ratio -> 1 as gamma -> 0 is the O(gamma) correspondence;
+degradation at the SMALLEST gammas in float32 (absent in float64) is the
+precision floor. K_h rows show the relaxation-budget dependence
+(K_h = sweeps actually taken at inference; production FID runs used K_h=1).
