@@ -19,7 +19,13 @@ from network_unet import EBViTModelWrapper
 
 CKPT = sys.argv[1] if len(sys.argv) > 1 else "checkpoints_authors/cifar10_warm_up_145000.pt"
 WEIGHTS = os.environ.get("DIAG_WEIGHTS", "net_model")
-GAMMA = float(os.environ.get("DIAG_GAMMA", 0.3))   # CIFAR e-param window is LARGE gamma (see in_paper_diag_ep_vs_ift_vs_ffn run 2026-08-06)
+# Operating point of the paper's EP arm. gamma_code = 1000 * gamma_V on CIFAR-10,
+# so 0.1 = gamma_V 1e-4. The usable window is gamma_code 0.03..10 (Table 4);
+# BELOW ~0.03 the finite difference is lost to float32 cancellation and ABOVE ~10
+# the nudge biases it. The old default here was 0.3 -- that is gamma_V 3e-4, the
+# value the storm arm trained at and exploded from -- with a comment
+# claiming the window is "LARGE gamma", which the 512-interpolant grid retired.
+GAMMA = float(os.environ.get("DIAG_GAMMA", 0.1))
 OUTPUT_SCALE = 1000.0
 N_CG_STEPS = 20
 # -------- sweep axes (env-overridable for follow-up slices) --------
@@ -44,11 +50,16 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # their estimator bias. torchcfm's GroupNorm32 hard-casts to fp32, which breaks a
 # true float64 run ("mixed dtype"), so make it dtype-honest as the other diags do.
 DTYPE = torch.float64 if os.environ.get("DIAG_FP64", "0") == "1" else torch.float32
-if DTYPE is torch.float64:
-    import torch.nn.functional as _Fnn
-    from torchcfm.models.unet import nn as _tcfm_nn
-    _tcfm_nn.GroupNorm32.forward = lambda self, x: _Fnn.group_norm(
-        x, self.num_groups, self.weight, self.bias, self.eps)
+# Applied UNCONDITIONALLY, as in in_paper_diag_ep_vs_ift_vs_ffn: in a float32 run
+# it is bit-identical to the original (GroupNorm32.forward is
+# `super().forward(x.float()).type(x.dtype)`, and both casts are no-ops at
+# float32, leaving the same F.group_norm call), so this changes nothing there --
+# it just removes an asymmetry between the two instruments that would otherwise
+# invite a "why do these differ?" hunt later.
+import torch.nn.functional as _Fnn
+from torchcfm.models.unet import nn as _tcfm_nn
+_tcfm_nn.GroupNorm32.forward = lambda self, x: _Fnn.group_norm(
+    x, self.num_groups, self.weight, self.bias, self.eps)
 
 if os.environ.get("DIAG_TF32", "0") == "1":
     # TF32 matmul for the ViT-heavy sweeps (convs are TF32 via cuDNN default
@@ -81,6 +92,17 @@ def next_ot():
     global _it
     try: x1 = next(_it)[0]
     except StopIteration: _it = iter(loader); x1 = next(_it)[0]
+    # NOT PAIRED ACROSS DTYPES, unlike in_paper_diag_ep_vs_ift_vs_ffn, which draws
+    # in float64 and casts last. Here x1 is cast FIRST, so randn_like consumes the
+    # CUDA RNG stream in DTYPE and the float32 and float64 passes see DIFFERENT
+    # interpolants (the other script's docstring records the tell: |g| 0.619 vs
+    # 0.480 on nominally identical batches). Consequences:
+    #   - fine for everything this script is used for, which is comparing settings
+    #     WITHIN one arithmetic (Table 4's grid, figure I's beta axis);
+    #   - if you ever want a paired f32/f64 comparison, use the other instrument,
+    #     or change this to draw in float64 and cast at the return -- but note that
+    #     doing so CHANGES THE FLOAT32 DRAW and the filed Table 4 / figure I logs
+    #     will no longer reproduce, so it is not a free edit before the deadline.
     x1 = x1.to(device, DTYPE); x0 = torch.randn_like(x1)
     t, xt, ut = fm.sample_location_and_conditional_flow(x0, x1)
     return t.to(device, DTYPE), xt.to(device, DTYPE), ut.to(device, DTYPE)
