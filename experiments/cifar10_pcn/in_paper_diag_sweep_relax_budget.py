@@ -30,7 +30,16 @@ OUTPUT_SCALE = 1000.0
 N_CG_STEPS = 20
 # -------- sweep axes (env-overridable for follow-up slices) --------
 NUDGE_TYPES = os.environ.get("DIAG_NUDGES", "quadratic,linear").split(",")
-LAMBDAS = [float(x) for x in os.environ.get("DIAG_LAMBDAS", "1.0,2.0").split(",")]
+# Spring stiffness. lambda=1 is the DEADBEAT choice at dt=1 and is what every
+# paper run and every training run uses: the visible update is
+# x <- x - dt*[lambda*(x - x_t) + grad E + nudge], so the spring displacement
+# contracts by (1 - dt*lambda) per sweep -- exactly 0 at dt=1, lambda=1, i.e. the
+# spring settles in ONE sweep, matching the deadbeat hidden layers at K_h=1.
+# lambda=2 gives (1 - 2) = -1: the homogeneous part flips sign every sweep and
+# never decays, so it is NOT a sensible default. (The old default here was
+# "1.0,2.0", which would have swept it; no filed run ever did -- every submit
+# script sets DIAG_LAMBDAS=1.0 explicitly.)
+LAMBDAS = [float(x) for x in os.environ.get("DIAG_LAMBDAS", "1.0").split(",")]
 # (K_h, T_free, T_nudge) triples as K:Tf:Tn;K:Tf:Tn;...
 BUDGETS = [tuple(int(v) for v in b.split(":")) for b in
            os.environ.get("DIAG_BUDGETS", "1:10:10;2:15:15;3:25:30").split(";")]
