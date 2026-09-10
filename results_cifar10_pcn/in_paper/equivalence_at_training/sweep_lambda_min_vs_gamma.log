@@ -1,0 +1,21 @@
+  entry = pickle.load(f, encoding="latin1")
+
+######## HEALTHY (replication warm-up 145k) (checkpoint_warmup_145000.pt, net_model, ebvit format) ########
+  gamma  solves  neg_curv    rate     min_rq     amplif    |g_ift|  |g_ift|/|g_ffn|
+   0.01       2         0   0.000     1.0000     1.0000     0.4933           0.9999
+   0.03       2         0   0.000     1.0000     1.0000     0.4933           0.9999
+    0.1       2         0   0.000     1.0000     1.0000     0.4933           0.9999
+    0.3       2         0   0.000     0.9999     1.0001     0.4932           0.9997
+    1.0       2         0   0.000     0.9996     1.0004     0.4930           0.9992
+
+######## BROKEN (storm arm, post-onset 65k) (checkpoint_65000.pt, net_model, pcn format) ########
+  gamma  solves  neg_curv    rate     min_rq     amplif    |g_ift|  |g_ift|/|g_ffn|
+   0.01       2         0   0.000     0.8729     1.1456    14.1644              nan
+   0.03       2         0   0.000     0.6510     1.5362    14.5524              nan
+    0.1       2         1   0.500    -2.0255        nan    33.7225              nan
+    0.3       2         0   0.000     0.4944     2.0225     2.4923              nan
+    1.0       2         1   0.500   -10.7340        nan     8.2188              nan
+
+READ: mechanism-supported iff amplification (and the neg-curv rate) rise with
+gamma on the HEALTHY checkpoint too, not only on the damaged one.
+Exit code: 0

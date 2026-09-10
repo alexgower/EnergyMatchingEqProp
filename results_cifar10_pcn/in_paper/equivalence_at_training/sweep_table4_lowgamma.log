@@ -1,0 +1,17 @@
+######## gamma_code=0.001 ########
+   linear  1.0    1   14    6   0.3   1.0    1 |  20.8023  -0.1172    52
+   linear  1.0    1   14    6   1.0   1.0    1 |  10.1595  -0.7861    52
+   linear  1.0    1   14    6   3.0   1.0    1 |   7.2245  -0.9488    52
+   linear  1.0    1   14    6  10.0   1.0    1 |   6.7750  -0.9748    52
+   linear  1.0    1   14    6  30.0   1.0    1 |   6.8309  -0.9773    52
+   linear  1.0    1   14    6 100.0   1.0    1 |   6.8315  -0.9779    52
+     linear: NONE reached 0.99; best cos=-0.1172 at lam=1.0 K_h=1 T_free=14 T_nudge=6 beta=0.3 dt=1.0 3ph=1 (raise budget or revisit gamma)
+######## gamma_code=0.0001 ########
+   linear  1.0    1   14    6   0.3   1.0    1 | 202.4273  -0.2118    52
+   linear  1.0    1   14    6   1.0   1.0    1 |  61.7826  -0.1819    52
+   linear  1.0    1   14    6   3.0   1.0    1 |  20.9652  -0.4528    52
+   linear  1.0    1   14    6  10.0   1.0    1 |  12.5596  -0.8633    52
+   linear  1.0    1   14    6  30.0   1.0    1 |  10.4420  -0.9707    52
+   linear  1.0    1   14    6 100.0   1.0    1 |  10.1438  -0.9857    52
+     linear: NONE reached 0.99; best cos=-0.1819 at lam=1.0 K_h=1 T_free=14 T_nudge=6 beta=1.0 dt=1.0 3ph=1 (raise budget or revisit gamma)
+Exit code: 0

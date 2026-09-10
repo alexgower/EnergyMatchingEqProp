@@ -1,0 +1,29 @@
+######## float64=1 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
+device=cuda dtype=torch.float64 batch=32 N_batch=16
+EP budget: K_h=1 T_free=14 T_nudge=6 beta=30.0 nudge=linear | IFT: K_h=2 n_cg=10
+
+  entry = pickle.load(f, encoding="latin1")
+FFN ref: |g_ff| mean = 0.3412
+
+  gamma |   |g_ift|    |g_ep| | cos(ift,ffn) cos(ep,ffn) cos(ep,ift)
+--------------------------------------------------------------------------
+ 0.0001 |    0.3412    0.3311 |       1.0000      1.0000      1.0000
+ 0.0003 |    0.3412    0.3311 |       1.0000      1.0000      1.0000
+  0.001 |    0.3412    0.3311 |       1.0000      1.0000      1.0000
+  0.003 |    0.3412    0.3311 |       1.0000      1.0000      1.0000
+   0.01 |    0.3412    0.3310 |       1.0000      1.0000      1.0000
+   0.03 |    0.3412    0.3310 |       1.0000      1.0000      1.0000
+    0.1 |    0.3411    0.3309 |       1.0000      0.9999      0.9999
+    0.3 |    0.3411    0.3293 |       1.0000      0.9993      0.9993
+    1.0 |    0.3408    0.3245 |       1.0000      0.9982      0.9982
+    3.0 |    0.3400    0.3107 |       1.0000      0.9915      0.9916
+   10.0 |    0.3372    0.2771 |       0.9999      0.9421      0.9427
+   30.0 |    0.3292    0.2554 |       0.9995      0.8995      0.9000
+  100.0 |    0.3017    0.2074 |       0.9930      0.6581      0.6410
+
+If cos(ep,ffn) and cos(ift,ffn) -> 1 as gamma->0: small-gamma correspondence
+holds and EP is faithful. If cos(ep,ift) stays ~1 but both drift from ffn:
+EP tracks IFT but the small-gamma limit isn't reached. If cos(ep,ift)<1:
+EP relaxation under-converged (raise budget).
+Exit code: 0

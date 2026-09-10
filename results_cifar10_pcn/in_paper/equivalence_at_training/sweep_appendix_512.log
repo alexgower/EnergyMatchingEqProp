@@ -1,0 +1,79 @@
+======== n_CG (IFT) ========
+######## n_cg=1 ########
+   0.01 |    0.3232    0.2372 |       1.0000      0.5169      0.5169
+    0.1 |    0.3241    0.3132 |       1.0000      0.9999      0.9999
+    0.3 |    0.3236    0.3121 |       1.0000      0.9998      0.9998
+######## n_cg=2 ########
+   0.01 |    0.3232    0.2372 |       1.0000      0.5118      0.5118
+    0.1 |    0.3241    0.3124 |       1.0000      0.9999      0.9999
+    0.3 |    0.3236    0.3121 |       1.0000      0.9998      0.9998
+######## n_cg=3 ########
+   0.01 |    0.3232    0.2374 |       1.0000      0.5207      0.5207
+    0.1 |    0.3241    0.3122 |       1.0000      0.9999      0.9999
+    0.3 |    0.3236    0.3120 |       1.0000      0.9998      0.9998
+######## n_cg=5 ########
+   0.01 |    0.3232    0.2376 |       1.0000      0.5200      0.5200
+    0.1 |    0.3241    0.3121 |       1.0000      0.9999      0.9999
+    0.3 |    0.3236    0.3120 |       1.0000      0.9998      0.9998
+######## n_cg=10 ########
+   0.01 |    0.3232    0.2356 |       1.0000      0.5080      0.5080
+    0.1 |    0.3241    0.3130 |       1.0000      0.9999      0.9999
+    0.3 |    0.3236    0.3121 |       1.0000      0.9998      0.9998
+######## n_cg=20 ########
+   0.01 |    0.3232    0.2360 |       1.0000      0.5051      0.5051
+    0.1 |    0.3241    0.3131 |       1.0000      0.9999      0.9999
+    0.3 |    0.3236    0.3121 |       1.0000      0.9998      0.9998
+######## n_cg=50 ########
+   0.01 |    0.3232    0.2368 |       1.0000      0.5088      0.5088
+    0.1 |    0.3241    0.3123 |       1.0000      0.9999      0.9999
+    0.3 |    0.3236    0.3121 |       1.0000      0.9998      0.9998
+======== T_nudge (EP) ========
+######## T_nudge=1 ########
+    0.1 |    0.3241    0.1587 |       1.0000      0.9998      0.9998
+######## T_nudge=2 ########
+    0.1 |    0.3241    0.2380 |       1.0000      0.9999      0.9999
+######## T_nudge=3 ########
+    0.1 |    0.3241    0.2781 |       1.0000      0.9999      0.9999
+######## T_nudge=4 ########
+    0.1 |    0.3241    0.2978 |       1.0000      0.9999      0.9999
+######## T_nudge=6 ########
+    0.1 |    0.3241    0.3130 |       1.0000      0.9999      0.9999
+######## T_nudge=10 ########
+    0.1 |    0.3241    0.3170 |       1.0000      0.9999      0.9999
+######## T_nudge=15 ########
+    0.1 |    0.3241    0.3172 |       1.0000      0.9999      0.9999
+======== K_h (EP) ========
+######## K_h=1 ########
+    0.1 |    0.3241    0.3134 |       1.0000      0.9999      0.9999
+######## K_h=2 ########
+    0.1 |    0.3241    0.3165 |       1.0000      0.9999      0.9999
+######## K_h=3 ########
+    0.1 |    0.3241    0.3162 |       1.0000      0.9999      0.9999
+######## K_h=5 ########
+    0.1 |    0.3241    0.3163 |       1.0000      0.9999      0.9999
+======== per-group: operating point, floor, under-relaxation; f32 and f64 ========
+######## per-group gamma=0.1 T_free=14 float64=0 ########
+  [EP grad by group] time_embed: cos=0.9991 |g_ffn|=8.61e-04 |g_ep|=8.51e-04  unet: cos=0.9997 |g_ffn|=1.31e-01 |g_ep|=1.27e-01  vit: cos=1.0000 |g_ffn|=3.70e-01 |g_ep|=3.62e-01
+  [EP grad] worst-5 per-tensor cos: [('conv.bias', 0.7386), ('3.bias', 0.8252), ('skip_connection.bias', 0.8252), ('3.bias', 0.8682), ('skip_connection.bias', 0.8682)]
+C. EP-vs-backprop param-grad cos: 0.99982
+######## per-group gamma=0.1 T_free=14 float64=1 ########
+  [EP grad by group] time_embed: cos=1.0000 |g_ffn|=1.04e-03 |g_ep|=1.02e-03  unet: cos=1.0000 |g_ffn|=1.36e-01 |g_ep|=1.32e-01  vit: cos=1.0000 |g_ffn|=3.38e-01 |g_ep|=3.28e-01
+  [EP grad] worst-5 per-tensor cos: [('conv.bias', 0.7072), ('3.bias', 0.8713), ('skip_connection.bias', 0.8713), ('3.bias', 0.9018), ('skip_connection.bias', 0.9018)]
+C. EP-vs-backprop param-grad cos: 0.99988
+######## per-group gamma=0.01 T_free=14 float64=0 ########
+  [EP grad by group] time_embed: cos=0.9034 |g_ffn|=8.61e-04 |g_ep|=9.63e-04  unet: cos=0.8248 |g_ffn|=1.31e-01 |g_ep|=1.61e-01  vit: cos=0.9271 |g_ffn|=3.70e-01 |g_ep|=2.79e-01
+  [EP grad] worst-5 per-tensor cos: [('2.bias', -0.5358), ('0.weight', 0.2329), ('0.bias', 0.2487), ('linear1.weight', 0.3511), ('linear1.bias', 0.4072)]
+C. EP-vs-backprop param-grad cos: 0.53834
+######## per-group gamma=0.01 T_free=14 float64=1 ########
+  [EP grad by group] time_embed: cos=1.0000 |g_ffn|=1.04e-03 |g_ep|=1.02e-03  unet: cos=1.0000 |g_ffn|=1.36e-01 |g_ep|=1.32e-01  vit: cos=1.0000 |g_ffn|=3.38e-01 |g_ep|=3.28e-01
+  [EP grad] worst-5 per-tensor cos: [('conv.bias', 0.7077), ('3.bias', 0.8716), ('skip_connection.bias', 0.8716), ('3.bias', 0.9018), ('skip_connection.bias', 0.9018)]
+C. EP-vs-backprop param-grad cos: 0.99989
+######## per-group gamma=0.1 T_free=5 float64=0 ########
+  [EP grad by group] time_embed: cos=0.9358 |g_ffn|=8.61e-04 |g_ep|=8.85e-04  unet: cos=-0.8230 |g_ffn|=1.31e-01 |g_ep|=2.39e-01  vit: cos=-0.9997 |g_ffn|=3.70e-01 |g_ep|=7.34e-01
+  [EP grad] worst-5 per-tensor cos: [('norm2.weight', -1.0), ('norm2.weight', -1.0), ('norm1.weight', -1.0), ('norm2.weight', -1.0), ('linear2.bias', -1.0)]
+C. EP-vs-backprop param-grad cos: -0.92058
+######## per-group gamma=0.01 T_free=5 float64=0 ########
+  [EP grad by group] time_embed: cos=0.8469 |g_ffn|=8.61e-04 |g_ep|=1.02e-03  unet: cos=-0.7619 |g_ffn|=1.31e-01 |g_ep|=2.53e-01  vit: cos=-0.9923 |g_ffn|=3.70e-01 |g_ep|=8.66e-01
+  [EP grad] worst-5 per-tensor cos: [('norm2.bias', -1.0), ('out_proj.bias', -1.0), ('linear2.bias', -1.0), ('out_proj.bias', -1.0), ('norm2.bias', -1.0)]
+C. EP-vs-backprop param-grad cos: -0.90893
+Exit code: 0

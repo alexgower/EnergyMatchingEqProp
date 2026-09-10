@@ -1,0 +1,46 @@
+######## linear, float32 ########
+   linear  1.0    1   14    6  0.01   1.0    1 |   6.3966  -0.0037    52
+   linear  1.0    1   14    6  0.03   1.0    1 |   2.0577   0.1726    52
+   linear  1.0    1   14    6   0.1   1.0    1 |   0.6417   0.2999    52
+   linear  1.0    1   14    6   0.3   1.0    1 |   0.4022   0.8303    52
+   linear  1.0    1   14    6   1.0   1.0    1 |   0.3141   0.9789    52
+   linear  1.0    1   14    6   2.0   1.0    1 |   0.3109   0.9923    52
+   linear  1.0    1   14    6   3.0   1.0    1 |   0.3064   0.9969    52
+   linear  1.0    1   14    6   5.0   1.0    1 |   0.3083   0.9985    52
+   linear  1.0    1   14    6  10.0   1.0    1 |   0.3126   0.9996    52
+   linear  1.0    1   14    6  30.0   1.0    1 |   0.3129   0.9999    52
+   linear  1.0    1   14    6 100.0   1.0    1 |   0.3110   0.9997    52
+     linear: lam=1.0 K_h=1 T_free=14 T_nudge=6 beta=30.0 dt=1.0 3ph=1 -> cos=0.9999, cost=52
+######## quadratic, float32 ########
+quadratic  1.0    1   14    6  0.01   1.0    1 |   6.4064  -0.0969    52
+quadratic  1.0    1   14    6  0.03   1.0    1 |   1.9365   0.1389    52
+quadratic  1.0    1   14    6   0.1   1.0    1 |   0.7001   0.4617    52
+quadratic  1.0    1   14    6   0.3   1.0    1 |   0.3834   0.8511    52
+quadratic  1.0    1   14    6   1.0   1.0    1 |   0.9236   0.9962    52
+quadratic  1.0    1   14    6   2.0   1.0    1 |   5.6905   0.9494    52
+quadratic  1.0    1   14    6   3.0   1.0    1 |  21.3092   0.4137    52
+quadratic  1.0    1   14    6   5.0   1.0    1 | 849.3185  -0.2045    52
+quadratic  1.0    1   14    6  10.0   1.0    1 | 283.4847   0.0555    52
+quadratic  1.0    1   14    6  30.0   1.0    1 |   1.3878   0.1549    52
+quadratic  1.0    1   14    6 100.0   1.0    1 |   0.4965   0.1337    52
+  quadratic: lam=1.0 K_h=1 T_free=14 T_nudge=6 beta=1.0 dt=1.0 3ph=1 -> cos=0.9962, cost=52
+######## linear, float64 ########
+==== beta=0.01 ====
+C. EP-vs-backprop param-grad cos: 0.99995
+==== beta=0.03 ====
+C. EP-vs-backprop param-grad cos: 0.99996
+==== beta=0.1 ====
+C. EP-vs-backprop param-grad cos: 0.99996
+==== beta=0.3 ====
+C. EP-vs-backprop param-grad cos: 0.99996
+==== beta=1.0 ====
+C. EP-vs-backprop param-grad cos: 0.99996
+==== beta=3.0 ====
+C. EP-vs-backprop param-grad cos: 0.99996
+==== beta=10.0 ====
+C. EP-vs-backprop param-grad cos: 0.99996
+==== beta=30.0 ====
+C. EP-vs-backprop param-grad cos: 0.99995
+==== beta=100.0 ====
+C. EP-vs-backprop param-grad cos: 0.99982
+Exit code: 0

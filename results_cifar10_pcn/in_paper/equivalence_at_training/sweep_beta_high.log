@@ -1,0 +1,11 @@
+   linear  1.0    1   14    6 300.0   1.0    1 |   0.3082   0.9991    52
+   linear  1.0    1   14    6 1000.0   1.0    1 |   0.2955   0.9970    52
+   linear  1.0    1   14    6 3000.0   1.0    1 |   0.2685   0.9859    52
+   linear  1.0    1   14    6 10000.0   1.0    1 |   0.2475   0.9687    52
+quadratic  1.0    1   14    6 300.0   1.0    1 |   0.1506   0.1434    52
+quadratic  1.0    1   14    6 1000.0   1.0    1 |   0.0464   0.1327    52
+quadratic  1.0    1   14    6 3000.0   1.0    1 |   0.0090   0.1127    52
+quadratic  1.0    1   14    6 10000.0   1.0    1 |   0.0000   0.2871    52
+     linear: lam=1.0 K_h=1 T_free=14 T_nudge=6 beta=300.0 dt=1.0 3ph=1 -> cos=0.9991, cost=52
+  quadratic: NONE reached 0.99; best cos=0.2871 at lam=1.0 K_h=1 T_free=14 T_nudge=6 beta=10000.0 dt=1.0 3ph=1 (raise budget or revisit gamma)
+Exit code: 0

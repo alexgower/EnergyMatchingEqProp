@@ -1,0 +1,159 @@
+======== figure G: gamma sweep, float32 then float64, 512 interpolants ========
+######## float64=0 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
+device=cuda dtype=torch.float32 batch=128 N_batch=4
+EP budget: K_h=1 T_free=14 T_nudge=6 beta=30.0 nudge=linear | IFT: K_h=2 n_cg=10
+
+  entry = pickle.load(f, encoding="latin1")
+FFN ref: |g_ff| mean = 0.3232
+
+  gamma |   |g_ift|    |g_ep| | cos(ift,ffn) cos(ep,ffn) cos(ep,ift)
+--------------------------------------------------------------------------
+ 0.0001 |    0.3232   10.3862 |       1.0000     -0.9660     -0.9660
+ 0.0003 |    0.3232    9.4285 |       1.0000     -0.9836     -0.9836
+  0.001 |    0.3232    6.8113 |       1.0000     -0.9801     -0.9801
+  0.003 |    0.3232    2.4187 |       1.0000     -0.9559     -0.9559
+   0.01 |    0.3232    0.2368 |       1.0000      0.5157      0.5156
+   0.03 |    0.3234    0.3262 |       1.0000      0.9982      0.9982
+    0.1 |    0.3241    0.3125 |       1.0000      0.9999      0.9999
+    0.3 |    0.3236    0.3119 |       1.0000      0.9998      0.9998
+    1.0 |    0.3229    0.3084 |       1.0000      0.9996      0.9996
+    3.0 |    0.3220    0.2988 |       1.0000      0.9985      0.9985
+   10.0 |    0.3191    0.2703 |       1.0000      0.9881      0.9882
+   30.0 |    0.3109    0.2679 |       0.9998      0.9783      0.9790
+  100.0 |    0.2814    0.2048 |       0.9976      0.8495      0.8512
+
+If cos(ep,ffn) and cos(ift,ffn) -> 1 as gamma->0: small-gamma correspondence
+holds and EP is faithful. If cos(ep,ift) stays ~1 but both drift from ffn:
+EP tracks IFT but the small-gamma limit isn't reached. If cos(ep,ift)<1:
+EP relaxation under-converged (raise budget).
+######## float64=1 ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
+device=cuda dtype=torch.float64 batch=128 N_batch=4
+EP budget: K_h=1 T_free=14 T_nudge=6 beta=30.0 nudge=linear | IFT: K_h=2 n_cg=10
+
+  entry = pickle.load(f, encoding="latin1")
+FFN ref: |g_ff| mean = 0.3230
+
+  gamma |   |g_ift|    |g_ep| | cos(ift,ffn) cos(ep,ffn) cos(ep,ift)
+--------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/diag_ep_vs_ift_vs_ffn.py", line 152, in <module>
+    v = mi(t, xt); ((v-ut)**2).mean().backward()
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/network_pcn.py", line 1712, in forward
+    return self.velocity(x, t, velocity_mode=velocity_mode)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/network_pcn.py", line 1464, in velocity
+    return self._velocity_error_param(x, training)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/network_pcn.py", line 1693, in _velocity_error_param
+    dEdx = torch.autograd.grad(
+           ~~~~~~~~~~~~~~~~~~~^
+        outputs=E,
+        ^^^^^^^^^^
+    ...<2 lines>...
+        create_graph=training,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )[0]
+    ^
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/autograd/__init__.py", line 515, in grad
+    result = _engine_run_backward(
+        outputs,
+    ...<5 lines>...
+        accumulate_grad=False,
+    )
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/autograd/graph.py", line 865, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        t_outputs, *args, **kwargs
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )  # Calls into the C++ engine to run the backward pass
+    ^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 256.00 MiB. GPU 0 has a total capacity of 79.25 GiB of which 118.62 MiB is free. Including non-PyTorch memory, this process has 79.12 GiB memory in use. Of the allocated memory 78.21 GiB is allocated by PyTorch, and 423.34 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+======== figure H: gamma x T_free, 512 interpolants ========
+######## gamma=0.001 T_free=5 ########
+  0.001 |    0.3232    7.2600 |       1.0000     -0.9830     -0.9830
+######## gamma=0.001 T_free=6 ########
+  0.001 |    0.3232    7.0785 |       1.0000     -0.9807     -0.9807
+######## gamma=0.001 T_free=7 ########
+  0.001 |    0.3232    6.9721 |       1.0000     -0.9809     -0.9809
+######## gamma=0.001 T_free=8 ########
+  0.001 |    0.3232    6.8814 |       1.0000     -0.9806     -0.9806
+######## gamma=0.001 T_free=9 ########
+  0.001 |    0.3232    6.8269 |       1.0000     -0.9802     -0.9802
+######## gamma=0.001 T_free=10 ########
+  0.001 |    0.3232    6.8424 |       1.0000     -0.9803     -0.9803
+######## gamma=0.001 T_free=12 ########
+  0.001 |    0.3232    6.9153 |       1.0000     -0.9796     -0.9796
+######## gamma=0.001 T_free=14 ########
+  0.001 |    0.3232    6.8120 |       1.0000     -0.9802     -0.9802
+######## gamma=0.001 T_free=20 ########
+  0.001 |    0.3232    6.8642 |       1.0000     -0.9800     -0.9800
+######## gamma=0.001 T_free=30 ########
+  0.001 |    0.3232    6.8684 |       1.0000     -0.9798     -0.9798
+######## gamma=0.01 T_free=5 ########
+   0.01 |    0.3232    1.0507 |       1.0000     -0.9604     -0.9604
+######## gamma=0.01 T_free=6 ########
+   0.01 |    0.3232    0.5668 |       1.0000     -0.9036     -0.9036
+######## gamma=0.01 T_free=7 ########
+   0.01 |    0.3232    0.3223 |       1.0000     -0.7158     -0.7158
+######## gamma=0.01 T_free=8 ########
+   0.01 |    0.3232    0.2238 |       1.0000     -0.2766     -0.2766
+######## gamma=0.01 T_free=9 ########
+   0.01 |    0.3232    0.2118 |       1.0000      0.1481      0.1481
+######## gamma=0.01 T_free=10 ########
+   0.01 |    0.3232    0.2217 |       1.0000      0.3551      0.3551
+######## gamma=0.01 T_free=12 ########
+   0.01 |    0.3232    0.2342 |       1.0000      0.5093      0.5093
+######## gamma=0.01 T_free=14 ########
+   0.01 |    0.3232    0.2391 |       1.0000      0.5214      0.5214
+######## gamma=0.01 T_free=20 ########
+   0.01 |    0.3232    0.2374 |       1.0000      0.5279      0.5279
+######## gamma=0.01 T_free=30 ########
+   0.01 |    0.3232    0.2417 |       1.0000      0.5440      0.5440
+######## gamma=0.1 T_free=5 ########
+    0.1 |    0.3241    0.8404 |       1.0000     -0.9748     -0.9749
+######## gamma=0.1 T_free=6 ########
+    0.1 |    0.3241    0.3485 |       1.0000     -0.9513     -0.9514
+######## gamma=0.1 T_free=7 ########
+    0.1 |    0.3241    0.0779 |       1.0000     -0.6109     -0.6112
+######## gamma=0.1 T_free=8 ########
+    0.1 |    0.3241    0.1193 |       1.0000      0.9595      0.9593
+######## gamma=0.1 T_free=9 ########
+    0.1 |    0.3241    0.2068 |       1.0000      0.9958      0.9958
+######## gamma=0.1 T_free=10 ########
+    0.1 |    0.3241    0.2569 |       1.0000      0.9991      0.9991
+######## gamma=0.1 T_free=12 ########
+    0.1 |    0.3241    0.3001 |       1.0000      0.9999      0.9999
+######## gamma=0.1 T_free=14 ########
+    0.1 |    0.3241    0.3131 |       1.0000      0.9999      0.9999
+######## gamma=0.1 T_free=20 ########
+    0.1 |    0.3241    0.3170 |       1.0000      0.9999      0.9999
+######## gamma=0.1 T_free=30 ########
+    0.1 |    0.3241    0.3170 |       1.0000      0.9999      0.9999
+######## gamma=0.3 T_free=5 ########
+    0.3 |    0.3236    0.8415 |       1.0000     -0.9750     -0.9750
+######## gamma=0.3 T_free=6 ########
+    0.3 |    0.3236    0.3497 |       1.0000     -0.9518     -0.9519
+######## gamma=0.3 T_free=7 ########
+    0.3 |    0.3236    0.0776 |       1.0000     -0.6219     -0.6220
+######## gamma=0.3 T_free=8 ########
+    0.3 |    0.3236    0.1189 |       1.0000      0.9596      0.9595
+######## gamma=0.3 T_free=9 ########
+    0.3 |    0.3236    0.2064 |       1.0000      0.9957      0.9957
+######## gamma=0.3 T_free=10 ########
+    0.3 |    0.3236    0.2565 |       1.0000      0.9990      0.9990
+######## gamma=0.3 T_free=12 ########
+    0.3 |    0.3236    0.2996 |       1.0000      0.9997      0.9997
+######## gamma=0.3 T_free=14 ########
+    0.3 |    0.3236    0.3122 |       1.0000      0.9998      0.9998
+######## gamma=0.3 T_free=20 ########
+    0.3 |    0.3236    0.3169 |       1.0000      0.9998      0.9998
+######## gamma=0.3 T_free=30 ########
+    0.3 |    0.3236    0.3171 |       1.0000      0.9998      0.9998
+Exit code: 0

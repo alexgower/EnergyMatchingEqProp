@@ -1,0 +1,85 @@
+######## fp32, gamma grid ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
+device=cuda dtype=torch.float32 batch=16 N_batch=2
+EP budget: K_h=1 T_free=14 T_nudge=6 beta=30.0 nudge=linear | IFT: K_h=2 n_cg=10
+
+  entry = pickle.load(f, encoding="latin1")
+FFN ref: |g_ff| mean = 0.4782
+
+  gamma |   |g_ift|    |g_ep| | cos(ift,ffn) cos(ep,ffn) cos(ep,ift)
+--------------------------------------------------------------------------
+  0.001 |    0.4782    7.0698 |       1.0000     -0.9281     -0.9281
+  0.003 |    0.4782    2.4105 |       1.0000     -0.8868     -0.8868
+   0.01 |    0.4782    0.4146 |       1.0000      0.9142      0.9142
+   0.03 |    0.4782    0.4842 |       1.0000      0.9927      0.9926
+    0.1 |    0.4781    0.4660 |       1.0000      0.9988      0.9988
+    0.3 |    0.4781    0.4657 |       1.0000      0.9998      0.9998
+    1.0 |    0.4778    0.4622 |       1.0000      0.9998      0.9998
+
+If cos(ep,ffn) and cos(ift,ffn) -> 1 as gamma->0: small-gamma correspondence
+holds and EP is faithful. If cos(ep,ift) stays ~1 but both drift from ffn:
+EP tracks IFT but the small-gamma limit isn't reached. If cos(ep,ift)<1:
+EP relaxation under-converged (raise budget).
+######## float64, low gamma ########
+ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
+device=cuda dtype=torch.float64 batch=8 N_batch=2
+EP budget: K_h=1 T_free=14 T_nudge=6 beta=30.0 nudge=linear | IFT: K_h=2 n_cg=10
+
+  entry = pickle.load(f, encoding="latin1")
+Traceback (most recent call last):
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/diag_ep_vs_ift_vs_ffn.py", line 127, in <module>
+    g_ff = [ffn_grad(*BATCHES[b]) for b in range(N_BATCH)]
+            ~~~~~~~~^^^^^^^^^^^^^
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/diag_ep_vs_ift_vs_ffn.py", line 122, in ffn_grad
+    v = ffn.velocity(xt, t)
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/network_unet.py", line 460, in velocity
+    V = self.potential(x, t)
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/network_unet.py", line 439, in potential
+    unet_out = super().forward(t_dummy, x)
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 925, in forward
+    return super().forward(t, x, y=y)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 626, in forward
+    h = module(h, emb)
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 69, in forward
+    x = layer(x)
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/conv.py", line 553, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/conv.py", line 548, in _conv_forward
+    return F.conv2d(
+           ~~~~~~~~^
+        input, weight, bias, self.stride, self.padding, self.dilation, self.groups
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+RuntimeError: Input type (float) and bias type (double) should be the same
+######## per-group, gamma=0.01 ########
+  [EP grad by group] time_embed: cos=0.8152 |g_ffn|=1.80e-03 |g_ep|=2.09e-03  unet: cos=0.6563 |g_ffn|=1.37e-01 |g_ep|=1.60e-01  vit: cos=0.3634 |g_ffn|=2.73e-01 |g_ep|=1.60e-01
+  [EP grad] worst-5 per-tensor cos: [('self_attn.in_proj_weight', -0.5676), ('out_proj.weight', -0.4307), ('self_attn.in_proj_bias', -0.2579), ('self_attn.in_proj_weight', -0.0953), ('self_attn.in_proj_weight', 0.0069)]
+B. velocity cos(FFN, PCN-IFT):    0.99626   norm ratio 0.9869
+B. velocity cos(FFN, EP-spring):  0.99626   norm ratio 0.9869
+C. EP-vs-backprop param-grad cos: 0.61872
+######## per-group, gamma=0.1 ########
+  [EP grad by group] time_embed: cos=0.9980 |g_ffn|=1.80e-03 |g_ep|=1.77e-03  unet: cos=0.9952 |g_ffn|=1.37e-01 |g_ep|=1.31e-01  vit: cos=0.9998 |g_ffn|=2.73e-01 |g_ep|=2.62e-01
+  [EP grad] worst-5 per-tensor cos: [('conv.bias', 0.8812), ('3.bias', 0.936), ('skip_connection.bias', 0.936), ('3.bias', 0.9659), ('skip_connection.bias', 0.9659)]
+B. velocity cos(FFN, PCN-IFT):    0.99999   norm ratio 0.9995
+B. velocity cos(FFN, EP-spring):  0.99999   norm ratio 0.9995
+C. EP-vs-backprop param-grad cos: 0.99905
+######## per-group, gamma=0.3 ########
+  [EP grad by group] time_embed: cos=0.9996 |g_ffn|=1.80e-03 |g_ep|=1.77e-03  unet: cos=0.9983 |g_ffn|=1.37e-01 |g_ep|=1.35e-01  vit: cos=0.9999 |g_ffn|=2.73e-01 |g_ep|=2.62e-01
+  [EP grad] worst-5 per-tensor cos: [('conv.bias', 0.8833), ('3.bias', 0.9369), ('skip_connection.bias', 0.9369), ('3.bias', 0.9684), ('skip_connection.bias', 0.9684)]
+B. velocity cos(FFN, PCN-IFT):    1.00000   norm ratio 0.9994
+B. velocity cos(FFN, EP-spring):  1.00000   norm ratio 0.9994
+C. EP-vs-backprop param-grad cos: 0.99979
+Exit code: 0

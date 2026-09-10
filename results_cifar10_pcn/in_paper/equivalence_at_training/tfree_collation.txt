@@ -1,0 +1,101 @@
+T_free COLLATION — every (gamma, beta) pair with a T_free sweep, one place.
+Collated 2026-09-09 from the logs in this folder; no new runs.
+Value = cos(dtheta_EP, dtheta_BP) against true FFN backprop.
+"cross" = first T_free at which the cosine is positive; "0.99" = first T_free at
+which it reaches 0.99 ("--" = never, at any budget measured).
+Budget otherwise K_h=1, T_nudge=6, linear three-phase nudge, dt=1; IFT K_h=2, n_CG=10.
+CAVEAT: float32 rows are batch 128x4, float64 rows 32x16 -- DIFFERENT interpolant
+draws, so the f32-vs-f64 threshold difference is not a clean arithmetic comparison
+(see the note at the foot of this file).
+
+CURRENT: 512 seeded interpolants
+arith   gamma_V  beta |       5       6       7       8       9      10      12      14      20      30 | cross  0.99  source
+-----------------------------------------------------------------------------------------------------------------------------
+f32        1e-6    30 | -0.9830 -0.9807 -0.9809 -0.9806 -0.9802 -0.9803 -0.9796 -0.9802 -0.9800 -0.9798 |    --    --  512
+f32        5e-6    30 | -0.9733 -0.9609 -0.9434 -0.9256 -0.9106 -0.9011 -0.8927 -0.8908 -0.8927 -0.8913 |    --    --  extra_gammas
+f32        1e-5     3 |       . -0.8478 -0.6237 -0.1627  0.0412  0.3879       .       .       .       . |     9    --  gb_corners
+f32        1e-5    30 | -0.9604 -0.9036 -0.7158 -0.2766  0.1481  0.3551  0.5093  0.5214  0.5279  0.5440 |     9    --  512
+f32        1e-5   100 |       . -0.9052 -0.7192 -0.2947  0.1210  0.3377       .       .       .       . |     9    --  gb_corners
+f32        5e-5    30 | -0.9746 -0.9500 -0.6073  0.9550  0.9954  0.9988  0.9997  0.9998  0.9998  0.9998 |     8     9  extra_gammas
+f32        1e-4     3 | -0.9741 -0.9487 -0.6233  0.9141  0.9890  0.9946  0.9967  0.9969       .       . |     8    10  beta_dep,gb_corners
+f32        1e-4    30 | -0.9748 -0.9513 -0.6109  0.9595  0.9958  0.9991  0.9999  0.9999  0.9999  0.9999 |     8     9  512
+f32        1e-4   100 | -0.9750 -0.9519 -0.6177  0.9607  0.9959  0.9990  0.9997  0.9998       .       . |     8     9  beta_dep,gb_corners
+f32        3e-4    30 | -0.9750 -0.9518 -0.6219  0.9596  0.9957  0.9990  0.9997  0.9998  0.9998  0.9998 |     8     9  512
+f32        1e-3    30 | -0.9752 -0.9527 -0.6425  0.9565  0.9952  0.9987  0.9995  0.9996  0.9996  0.9996 |     8     9  high_gamma
+f32        1e-2     3 |       . -0.9489 -0.6760  0.9177  0.9874  0.9947       .       .       .       . |     8    10  gb_corners
+f32        1e-2    30 | -0.9755 -0.9566 -0.7965  0.7691  0.9621  0.9803  0.9869  0.9881  0.9885  0.9885 |     8    --  high_gamma
+f32        1e-2   100 |       . -0.9593 -0.8411  0.7034  0.9477  0.9700       .       .       .       . |     8    --  gb_corners
+f32        1e-1    30 | -0.9113 -0.8832 -0.7237  0.2458  0.7015  0.7609  0.8432  0.8487  0.8269  0.8374 |     8    --  high_gamma
+
+f64        1e-6    30 | -0.8852 -0.7718  0.0100  0.7063  0.9410  0.9894  0.9994  1.0000  1.0000  1.0000 |     7    12  f64
+f64        5e-6    30 | -0.8852 -0.7719  0.0099  0.7063  0.9410  0.9894  0.9994  1.0000  1.0000  1.0000 |     7    12  f64_rest
+f64        1e-5    30 | -0.8852 -0.7719  0.0099  0.7062  0.9410  0.9894  0.9994  1.0000  1.0000  1.0000 |     7    12  f64
+f64        5e-5    30 | -0.8853 -0.7720  0.0098  0.7058  0.9408  0.9893  0.9994  0.9999  1.0000  1.0000 |     7    12  f64
+f64        1e-4    30 | -0.8853 -0.7721  0.0102  0.7053  0.9406  0.9892  0.9993  0.9999       .       . |     7    12  f64
+f64        3e-4    30 | -0.8864 -0.7783  0.0031  0.7031  0.9394  0.9885  0.9988  0.9993  0.9994  0.9994 |     7    12  f64_rest
+f64        1e-3    30 | -0.8881 -0.7892 -0.0173  0.6947  0.9345  0.9861  0.9975  0.9982  0.9983  0.9983 |     8    12  f64_rest
+f64        1e-2    30 | -0.8998 -0.8454 -0.2867  0.4021  0.7427  0.8729  0.9320  0.9421  0.9455  0.9456 |     8    --  f64_rest
+f64        1e-1    30 | -0.8465 -0.8101 -0.5198  0.0288  0.3619  0.5274  0.6140  0.6581  0.6363  0.6478 |     8    --  f64_rest
+
+SUPERSEDED by the 512 re-measurement (arith column carries the interpolant count)
+arith   gamma_V  beta |       5       6       7       8       9      10      12      14      20      30 | cross  0.99  source
+-----------------------------------------------------------------------------------------------------------------------------
+f32/128    1e-6    30 |       . -0.9712 -0.9562       . -0.9681       .       .       .       .       . |    --    --  fill_and_batch_ceiling
+f32/128    1e-5    30 |       . -0.7526 -0.0457       .  0.6011       .       .       .       .       . |     9    --  fill_and_batch_ceiling
+f32/128    1e-4    30 |       . -0.8105  0.4391       .  0.9932       .       .       .       .       . |     7     9  fill_and_batch_ceiling
+f32/128    3e-4    30 |       . -0.8116  0.4401       .  0.9954       .       .       .       .       . |     7     9  fill_and_batch_ceiling
+
+f32/32     1e-6    30 | -0.9356       .       . -0.9310       . -0.9256 -0.9266 -0.9263 -0.9266 -0.9307 |    --    --  gamma_tfree_grid
+f32/32     1e-5    30 | -0.9053       .       .  0.6362       .  0.9034  0.9130  0.9201  0.9193  0.9370 |     8    --  gamma_tfree_grid
+f32/32     1e-4    30 | -0.9019       .       .  0.9556       .  0.9966  0.9993  0.9989  0.9985  0.9989 |     8    10  gamma_tfree_grid
+f32/32     3e-4    30 | -0.9019       .       .  0.9512       .  0.9982  0.9997  0.9998  0.9999  0.9998 |     8    10  gamma_tfree_grid
+
+SOURCE LOGS
+  512                     sweep_512.log, "figure H" block          job 35048171
+  extra_gammas            sweep_tfree_extra_gammas.log             job 35085392
+  high_gamma              sweep_tfree_high_gamma.log               job 35100884
+  beta_dep                sweep_tfree_beta_dep.log                 job 35100884
+  gb_corners              sweep_tfree_gb_corners.log               job 35149214
+  f64 / f64_rest          sweep_tfree_f64.log, _rest.log           job 35100884
+  gamma_tfree_grid        sweep_gamma_tfree_grid.log    SUPERSEDED (32 interpolants)
+  fill_and_batch_ceiling  sweep_tfree_fill_and_batch_ceiling.log
+                                                        SUPERSEDED (128 interpolants)
+
+WHAT THE GRID SUPPORTS, AND WHAT IT DOES NOT
+
+1. THE CROSSING BUDGET IS RETIRED -- do not quote it. In THIS 512 draw the
+   float32 crossing is at 8 for gamma_V 5e-5..1e-1 at every beta measured (3, 30,
+   100), and at 9 for gamma_V=1e-5 at all three beta. But the sign AT T=7 flips
+   with the draw: at gamma_V=1e-4, beta=30, same instrument, the 512 draw reads
+   -0.6109 and the superseded 128-interpolant draw reads +0.4391. The crossing is
+   therefore 8 in one draw and 7 in another at identical settings, and no crossing
+   budget belongs in the paper. (Dropped from the main text and appendix
+   2026-09-09.)
+
+2. WHAT EVERY DRAW AGREES ON, and what the paper now says: the SHAPE. Strongly
+   negative at T<=6, above 0.9 at T=8, reaching 0.99 by 10. What gamma changes is
+   the plateau height, not the shape; gamma_V=1e-5 is the one setting that
+   recovers late, at BOTH beta=3 and beta=100, so that is a property of gamma and
+   not of the displacement size. Below 1e-5 (5e-6, 1e-6) the update NEVER turns
+   positive, out to T_free=30.
+
+3. "Reaches 0.99 by T_free=10": HOLDS IN FLOAT32 in every cell that reaches 0.99
+   at all. The slowest are gamma_V=1e-4 at beta=3 and gamma_V=1e-2 at beta=3, both
+   at exactly 10; every beta>=30 cell reaches it at 9.
+   IT DOES NOT HOLD IN FLOAT64: every float64 cell that reaches 0.99 needs 12
+   (T=10 reads 0.9894, just short). Do not write "by 10" without "in float32".
+
+4. NO FLOAT64 CROSSING CLAIM IS MADE (dropped 2026-09-09). For the record the
+   float64 rows here cross at 7 for gamma_V <= 3e-4 and at 8 for gamma_V >= 1e-3,
+   but the low-gamma half is a knife edge -- the T=7 values are +0.0100, +0.0099,
+   +0.0099, +0.0098, +0.0102, +0.0031, -0.0173 across gamma_V 1e-6..1e-3, all
+   within 0.02 of zero. Only 1e-2 and 1e-1 cross at 8 for a real reason (-0.287,
+   -0.520 at T=7).
+
+5. THE f32-vs-f64 COMPARISON ON THIS AXIS IS CONFOUNDED BY BATCH GEOMETRY and is
+   not made in the paper. float64 at B=128 does not fit, so every float64 row here
+   is 32x16 against float32's 128x4 -- different draws. The tell: at T=8 float64
+   reads 0.705 where float32 reads 0.96 at the same gamma and beta, and float64
+   cannot be genuinely worse than float32 on the same samples. The float64 curve
+   is a harder draw, not a slower convergence. Float64's role in §4.2 is the
+   PLATEAU HEIGHT, a same-draw comparison across gamma (EXPLANATION §2, rows F).
