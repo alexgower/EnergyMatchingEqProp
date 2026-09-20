@@ -1,0 +1,22 @@
+=== backprop (GPU 0, tau 3.25)
+=== ws192 (GPU 3, tau 5.0)
+=== ift (GPU 1, tau 3.25)
+=== ep (GPU 2, tau 3.25)
+I0920 16:02:48.620358 127632516867904 in_paper_diag_sample_grid.py:50] loaded ema_model
+I0920 16:02:48.624503 127632516867904 in_paper_diag_sample_grid.py:57] seed=1000 batch=128 times=[3.25] model=ffn_unet_vit
+I0920 16:04:27.426493 127632516867904 in_paper_diag_sample_grid.py:67] wrote /root/sample_grids/samples_backprop.npy shape=(128, 3, 32, 32) (first 128 of the seeded batch, no selection by eye)
+I0920 16:02:50.729255 138169048454976 in_paper_diag_sample_grid.py:50] loaded ema_model
+I0920 16:02:50.734328 138169048454976 in_paper_diag_sample_grid.py:57] seed=1000 batch=128 times=[5.0] model=ffn_unet_mlp
+I0920 16:04:57.376521 138169048454976 in_paper_diag_sample_grid.py:67] wrote /root/sample_grids/samples_ws192.npy shape=(128, 3, 32, 32) (first 128 of the seeded batch, no selection by eye)
+I0920 16:02:48.625428 133419398461248 in_paper_diag_sample_grid.py:50] loaded ema_model
+I0920 16:02:48.630158 133419398461248 in_paper_diag_sample_grid.py:57] seed=1000 batch=128 times=[3.25] model=pcn_unet_vit
+I0920 16:18:56.096025 133419398461248 in_paper_diag_sample_grid.py:67] wrote /root/sample_grids/samples_ift.npy shape=(128, 3, 32, 32) (first 128 of the seeded batch, no selection by eye)
+I0920 16:02:46.533501 125584079849280 in_paper_diag_sample_grid.py:50] loaded ema_model
+I0920 16:02:46.586622 125584079849280 in_paper_diag_sample_grid.py:57] seed=1000 batch=128 times=[3.25] model=pcn_unet_vit
+I0920 16:18:56.610762 125584079849280 in_paper_diag_sample_grid.py:67] wrote /root/sample_grids/samples_ep.npy shape=(128, 3, 32, 32) (first 128 of the seeded batch, no selection by eye)
+=== produced:
+393344 /root/sample_grids/samples_backprop.npy
+98432 /root/sample_grids/samples_backprop_first32_superseded.npy
+393344 /root/sample_grids/samples_ep.npy
+393344 /root/sample_grids/samples_ift.npy
+393344 /root/sample_grids/samples_ws192.npy
