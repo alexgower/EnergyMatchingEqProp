@@ -24,12 +24,16 @@ Each arm is sampled from its **phase-2 checkpoint** under **its own native infer
 weights, Euler--Heun via torchsde at dt = 0.01, epsilon_max = 0.01, time_cutoff = 1.0 — i.e. the FID
 protocol of `in_paper_fid_vs_steps_main_arms/`, at each arm's own optimal sampling time.
 
-| arm | checkpoint | inference | tau_s | FID of these weights |
+All four checkpoints are in `in_paper/`: the backpropagation one in the Sec-4.1 folder that owns it,
+the other three copied (md5-verified) into `in_paper/checkpoints_main_arms/`, whose EXPLANATION lists
+the original training paths.
+
+| arm | checkpoint (in_paper) | inference | tau_s | FID of these weights |
 |---|---|---|---|---|
-| backpropagation | `in_paper/equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_postcd_147000.pt` | `--model_type=ffn_unet_vit` (autograd velocity) | 3.25 | 3.5370 |
-| implicit solve | `main/stage2_ift_main_g01_drop01_p2cd_twin_fix/EM_cifar10_pcn_20260916_13/checkpoint_147000.pt` | `--model_type=pcn_unet_vit --pcn_error_param --pcn_gamma=0.1 --K_h=2 --T_free=15 --pcn_cg_steps=10 --pcn_dt=1.0` | 3.25 | 3.6351 |
-| EP | `main/stage3_ep_main_g01_drop01_p2cd_EP100K_V2/EM_cifar10_pcn_20260918_01/checkpoint_102000.pt` | as the implicit-solve row but `--pcn_gamma=0.003` (this arm's phase-2 solver gamma, and the gamma its FID used) | 3.25 | 3.6401 |
-| norm/attention-free | `strip/ablate_ws192_175k_p2cd/EM_cifar10_pcn_20260909_06/checkpoint_177000.pt` | `--model_type=ffn_unet_mlp --unet_no_attention --unet_no_norm --unet_ws --mlp_head=flatten --residual_alpha=-1 --num_channels=192` | **5.0** | 3.5089 |
+| backpropagation | `equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_postcd_147000.pt` | `--model_type=ffn_unet_vit` (autograd velocity) | 3.25 | 3.5370 |
+| implicit solve | `checkpoints_main_arms/ift_postcd_147000.pt` | `--model_type=pcn_unet_vit --pcn_error_param --pcn_gamma=0.1 --K_h=2 --T_free=15 --pcn_cg_steps=10 --pcn_dt=1.0` | 3.25 | 3.6351 |
+| EP | `checkpoints_main_arms/ep_postcd_102000.pt` | as the implicit-solve row but `--pcn_gamma=0.003` (this arm's phase-2 solver gamma, and the gamma its FID used) | 3.25 | 3.6401 |
+| norm/attention-free | `checkpoints_main_arms/ws192_postcd_177000.pt` | `--model_type=ffn_unet_mlp --unet_no_attention --unet_no_norm --unet_ws --mlp_head=flatten --residual_alpha=-1 --num_channels=192` | **5.0** | 3.5089 |
 
 **Matched noise.** Every run drew its batch as the FID runner does: `torch.manual_seed(fid_seed*1000)`
 with `fid_seed=1`, then `randn(128, 3, 32, 32)`. All four therefore start from the SAME x0, so panel i
@@ -52,16 +56,16 @@ step runs a relaxation):
     COMMON="--use_ema --fid_seed=1 --batch_size=128 --dt_gibbs=0.01 --epsilon_max=0.01 \
             --time_cutoff=1.0 --grid_n=128"
     uv run python3 in_paper_diag_sample_grid.py --model_type=ffn_unet_vit \
-      --resume_ckpt=<backprop postcd 147k> --fid_times=3.25 --grid_out=samples_backprop.npy $COMMON
+      --resume_ckpt=../equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_postcd_147000.pt --fid_times=3.25 --grid_out=samples_backprop.npy $COMMON
     uv run python3 in_paper_diag_sample_grid.py --model_type=pcn_unet_vit --pcn_error_param \
       --param_grad_mode=ift --pcn_gamma=0.1 --K_h=2 --T_free=15 --pcn_cg_steps=10 --pcn_dt=1.0 \
-      --resume_ckpt=<ift postcd 147k> --fid_times=3.25 --grid_out=samples_ift.npy $COMMON
+      --resume_ckpt=../checkpoints_main_arms/ift_postcd_147000.pt --fid_times=3.25 --grid_out=samples_ift.npy $COMMON
     uv run python3 in_paper_diag_sample_grid.py --model_type=pcn_unet_vit --pcn_error_param \
       --param_grad_mode=ift --pcn_gamma=0.003 --K_h=2 --T_free=15 --pcn_cg_steps=10 --pcn_dt=1.0 \
-      --resume_ckpt=<ep postcd 102k> --fid_times=3.25 --grid_out=samples_ep.npy $COMMON
+      --resume_ckpt=../checkpoints_main_arms/ep_postcd_102000.pt --fid_times=3.25 --grid_out=samples_ep.npy $COMMON
     uv run python3 in_paper_diag_sample_grid.py --model_type=ffn_unet_mlp --unet_no_attention \
       --unet_no_norm --unet_ws --mlp_head=flatten --residual_alpha=-1 --num_channels=192 \
-      --resume_ckpt=<ws192 postcd 177k> --fid_times=5.0 --grid_out=samples_ws192.npy $COMMON
+      --resume_ckpt=../checkpoints_main_arms/ws192_postcd_177000.pt --fid_times=5.0 --grid_out=samples_ws192.npy $COMMON
 
 then `uv run python3 make_figures.py` here. `param_grad_mode` is inert at inference (no
 gradients are taken w.r.t. parameters), so the EP arm is sampled with the same code path as the
