@@ -1,6 +1,6 @@
 ======== figure G: gamma sweep, float32 then float64, 512 interpolants ========
 ######## float64=0 ########
-ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
+ckpt=results_cifar10_pcn/in_paper/equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
 device=cuda dtype=torch.float32 batch=128 N_batch=4
 EP budget: K_h=1 T_free=14 T_nudge=6 beta=30.0 nudge=linear | IFT: K_h=2 n_cg=10
 
@@ -28,7 +28,7 @@ holds and EP is faithful. If cos(ep,ift) stays ~1 but both drift from ffn:
 EP tracks IFT but the small-gamma limit isn't reached. If cos(ep,ift)<1:
 EP relaxation under-converged (raise budget).
 ######## float64=1 ########
-ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
+ckpt=results_cifar10_pcn/in_paper/equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
 device=cuda dtype=torch.float64 batch=128 N_batch=4
 EP budget: K_h=1 T_free=14 T_nudge=6 beta=30.0 nudge=linear | IFT: K_h=2 n_cg=10
 
@@ -38,20 +38,20 @@ FFN ref: |g_ff| mean = 0.3230
   gamma |   |g_ift|    |g_ep| | cos(ift,ffn) cos(ep,ffn) cos(ep,ift)
 --------------------------------------------------------------------------
 Traceback (most recent call last):
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/diag_ep_vs_ift_vs_ffn.py", line 152, in <module>
+  File "experiments/cifar10_pcn/diag_ep_vs_ift_vs_ffn.py", line 152, in <module>
     v = mi(t, xt); ((v-ut)**2).mean().backward()
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
     return self._call_impl(*args, **kwargs)
            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
     return forward_call(*args, **kwargs)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/network_pcn.py", line 1712, in forward
+  File "experiments/cifar10_pcn/network_pcn.py", line 1712, in forward
     return self.velocity(x, t, velocity_mode=velocity_mode)
            ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/network_pcn.py", line 1464, in velocity
+  File "experiments/cifar10_pcn/network_pcn.py", line 1464, in velocity
     return self._velocity_error_param(x, training)
            ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/network_pcn.py", line 1693, in _velocity_error_param
+  File "experiments/cifar10_pcn/network_pcn.py", line 1693, in _velocity_error_param
     dEdx = torch.autograd.grad(
            ~~~~~~~~~~~~~~~~~~~^
         outputs=E,
@@ -61,13 +61,13 @@ Traceback (most recent call last):
         ^^^^^^^^^^^^^^^^^^^^^^
     )[0]
     ^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/autograd/__init__.py", line 515, in grad
+  File ".venv/lib/python3.14/site-packages/torch/autograd/__init__.py", line 515, in grad
     result = _engine_run_backward(
         outputs,
     ...<5 lines>...
         accumulate_grad=False,
     )
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/autograd/graph.py", line 865, in _engine_run_backward
+  File ".venv/lib/python3.14/site-packages/torch/autograd/graph.py", line 865, in _engine_run_backward
     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
         t_outputs, *args, **kwargs

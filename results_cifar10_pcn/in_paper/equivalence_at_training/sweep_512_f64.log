@@ -1,5 +1,5 @@
 ######## float64=1 ########
-ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
+ckpt=results_cifar10_pcn/in_paper/equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
 device=cuda dtype=torch.float64 batch=32 N_batch=16
 EP budget: K_h=1 T_free=14 T_nudge=6 beta=30.0 nudge=linear | IFT: K_h=2 n_cg=10
 

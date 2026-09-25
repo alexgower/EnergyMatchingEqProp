@@ -1,5 +1,5 @@
 ######## GPU ########
-ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=4 x 1 batches  clamp=None  seed=0
+ckpt=results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=4 x 1 batches  clamp=None  seed=0
   entry = pickle.load(f, encoding="latin1")
 MHA/TransformerEncoderLayer fast path DISABLED
 device=cuda dtype=torch.float64 gamma_code=0.001 L=27 top-node parity=0

@@ -1,5 +1,5 @@
 ######## GPU ########
-ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=4 x 1 batches  clamp=None  seed=0
+ckpt=results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=4 x 1 batches  clamp=None  seed=0
   entry = pickle.load(f, encoding="latin1")
 device=cuda dtype=torch.float64 gamma_code=0.001 L=27 top-node parity=0
  i     A(no_grad)         B-A   C(grad)-A  D_hL(no_grad)-hd_L  E_hL(grad)-hd_L     wrote-A   eL*-gamma
@@ -9,7 +9,7 @@ device=cuda dtype=torch.float64 gamma_code=0.001 L=27 top-node parity=0
  3     1.69315801   +0.00e+00   +2.36e-04           +0.00e+00        +2.36e-04   +0.00e+00   -2.36e-04
 reading: B-A ~ 0 and C-A ~ 0 => predict_L is reproducible on this device; wrote-A ~ 3e-4 with D/E ~ 0 => the relaxation wrote h_L* from a DIFFERENT parent state than the one it returned; D or E ~ 3e-4 => the reconstruction itself is not reproducible on this device.
 ######## CPU (same node, GPU hidden) ########
-ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=4 x 1 batches  clamp=None  seed=0
+ckpt=results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=4 x 1 batches  clamp=None  seed=0
   entry = pickle.load(f, encoding="latin1")
 device=cpu dtype=torch.float64 gamma_code=0.001 L=27 top-node parity=0
  i     A(no_grad)         B-A   C(grad)-A  D_hL(no_grad)-hd_L  E_hL(grad)-hd_L     wrote-A   eL*-gamma

@@ -2,7 +2,7 @@
 """Collate every T_free sweep in this folder into one table. Reads only; no runs."""
 import os, re, sys
 
-HERE = "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/equivalence_at_training"
+HERE = "results_cifar10_pcn/in_paper/equivalence_at_training"
 ALPHA = 1000.0
 DIAG = re.compile(r"^\s*([\d.e+-]+)\s*\|\s*([\d.e+-]+)\s+([\d.e+-]+)\s*\|"
                   r"\s*([\d.e+-]+)\s+([\d.e+-]+)\s+([\d.e+-]+)\s*$", re.M)

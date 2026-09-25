@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH -A CASTELNOVO-SL2-CPU
+#SBATCH -A YOUR_ACCOUNT
 #SBATCH --time=36:00:00
 #SBATCH --nodes=1
-#SBATCH -p icelake
+#SBATCH -p YOUR_PARTITION
 
 #SBATCH --job-name=${RUN_NAME:-"EnergyMatching-CPU-Job"}
 #SBATCH --output=logs/%j_${RUN_NAME}.log
@@ -30,14 +30,14 @@ export PATH="$HOME/.local/bin:$PATH"
 # Compute nodes need GCC 11+ libstdc++ for pot/torchcfm C extensions (GLIBCXX_3.4.29)
 export LD_LIBRARY_PATH="/usr/local/software/master/gcc/11/lib64:${LD_LIBRARY_PATH:-}"
 
-PROJECT_ROOT="/home/apg59/rds/hpc-work/EnergyMatchingEqProp"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"   # run from the repo root
 EXPERIMENT="${EXPERIMENT:-cifar10}"
 NPROCS="${NPROCS:-2}"
 TRAIN_SCRIPT="${PROJECT_ROOT}/experiments/${EXPERIMENT}/train_cifar_multigpu.py"
 
 # ─── Environment setup ─────────────────────────────────────────────────────
-echo "Loading modules for Icelake nodes..."
-module load rhel8/default-icl
+echo "Loading cluster modules (edit for your site)..."
+# module load <your site base modules>
 module load python
 echo "Modules loaded."
 

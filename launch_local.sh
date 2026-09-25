@@ -23,7 +23,7 @@ NGPUS="${NGPUS:-0}"                         # 0 = auto-detect
 EXTRA_FLAGS="${EXTRA_FLAGS:-}"              # additional absl flag overrides
 
 # ─── Validate experiment ────────────────────────────────────────────────────
-PROJECT_ROOT="/home/apg59/rds/hpc-work/EnergyMatchingEqProp"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"   # run from the repo root
 TRAIN_SCRIPT="${PROJECT_ROOT}/experiments/${EXPERIMENT}/train_cifar_multigpu.py"
 
 if [ ! -f "$TRAIN_SCRIPT" ]; then

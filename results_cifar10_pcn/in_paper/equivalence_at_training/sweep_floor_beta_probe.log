@@ -1,61 +1,61 @@
 ######## (a) float64, low gamma ########
-ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
+ckpt=results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
 device=cuda dtype=torch.float64 batch=8 N_batch=2
 EP budget: K_h=1 T_free=14 T_nudge=6 beta=30.0 nudge=linear | IFT: K_h=2 n_cg=10
 
   entry = pickle.load(f, encoding="latin1")
 Traceback (most recent call last):
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/diag_ep_vs_ift_vs_ffn.py", line 127, in <module>
+  File "experiments/cifar10_pcn/diag_ep_vs_ift_vs_ffn.py", line 127, in <module>
     g_ff = [ffn_grad(*BATCHES[b]) for b in range(N_BATCH)]
             ~~~~~~~~^^^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/diag_ep_vs_ift_vs_ffn.py", line 122, in ffn_grad
+  File "experiments/cifar10_pcn/diag_ep_vs_ift_vs_ffn.py", line 122, in ffn_grad
     v = ffn.velocity(xt, t)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/network_unet.py", line 465, in velocity
+  File "experiments/cifar10_pcn/network_unet.py", line 465, in velocity
     V = self.potential(x, t)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/network_unet.py", line 444, in potential
+  File "experiments/cifar10_pcn/network_unet.py", line 444, in potential
     unet_out = super().forward(t_dummy, x)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 925, in forward
+  File ".venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 925, in forward
     return super().forward(t, x, y=y)
            ~~~~~~~~~~~~~~~^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 626, in forward
+  File ".venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 626, in forward
     h = module(h, emb)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
     return self._call_impl(*args, **kwargs)
            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
     return forward_call(*args, **kwargs)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 67, in forward
+  File ".venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 67, in forward
     x = layer(x, emb)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
     return self._call_impl(*args, **kwargs)
            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
     return forward_call(*args, **kwargs)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 211, in forward
+  File ".venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 211, in forward
     return checkpoint(self._forward, (x, emb), self.parameters(), self.use_checkpoint)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchcfm/models/unet/nn.py", line 122, in checkpoint
+  File ".venv/lib/python3.14/site-packages/torchcfm/models/unet/nn.py", line 122, in checkpoint
     return func(*inputs)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 221, in _forward
+  File ".venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 221, in _forward
     h = self.in_layers(x)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
     return self._call_impl(*args, **kwargs)
            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
     return forward_call(*args, **kwargs)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/container.py", line 253, in forward
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/container.py", line 253, in forward
     input = module(input)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
     return self._call_impl(*args, **kwargs)
            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
     return forward_call(*args, **kwargs)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchcfm/models/unet/nn.py", line 17, in forward
+  File ".venv/lib/python3.14/site-packages/torchcfm/models/unet/nn.py", line 17, in forward
     return super().forward(x.float()).type(x.dtype)
            ~~~~~~~~~~~~~~~^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/normalization.py", line 327, in forward
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/normalization.py", line 327, in forward
     return F.group_norm(input, self.num_groups, self.weight, self.bias, self.eps)
            ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/functional.py", line 2990, in group_norm
+  File ".venv/lib/python3.14/site-packages/torch/nn/functional.py", line 2990, in group_norm
     return torch.group_norm(
            ~~~~~~~~~~~~~~~~^
         input, num_groups, weight, bias, eps, torch.backends.cudnn.enabled

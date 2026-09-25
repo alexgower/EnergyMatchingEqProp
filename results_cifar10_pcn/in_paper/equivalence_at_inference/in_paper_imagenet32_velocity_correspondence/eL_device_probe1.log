@@ -1,5 +1,5 @@
 ######## GPU ########
-ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=4 x 1 batches  clamp=None  seed=0
+ckpt=results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=4 x 1 batches  clamp=None  seed=0
   entry = pickle.load(f, encoding="latin1")
 
 device=cuda gamma_code=0.001 B=4 dtype=torch.float64
@@ -10,7 +10,7 @@ device=cuda gamma_code=0.001 B=4 dtype=torch.float64
  3  0.1320   1.69316101   1.69316101   1.69315801   1.69239413   7.6388e-04  -2.361e-04      +3.661e-09    -3.004e-06
 interpretation: e_L-gamma ~ 1e-7 => no offset on this device; ~1e-4 => the offset. predL-o_scan ~ gamma => relaxed parents moved the prediction by the expected tilt only; o_scan-o_ebvit ~ 1e-12 (f64) => the PCN's f_L IS the FFN's f_L on this device.
 ######## CPU (same node, GPU hidden) ########
-ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=4 x 1 batches  clamp=None  seed=0
+ckpt=results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt (ema_model) step=145000  B=4 x 1 batches  clamp=None  seed=0
   entry = pickle.load(f, encoding="latin1")
 
 device=cpu gamma_code=0.001 B=4 dtype=torch.float64

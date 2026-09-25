@@ -14,7 +14,7 @@
 #   bash submit_mnist_paper.sh
 ###############################################################################
 
-PROJECT_ROOT="/home/apg59/rds/hpc-work/EnergyMatchingEqProp"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"   # run from the repo root
 EXPERIMENT="mnist_from_cifar10"
 
 # Unique ID for this submission — ties Phase 1 and Phase 2 together
@@ -53,11 +53,11 @@ echo "  Output: ${RUN_OUTPUT_DIR}/phase1/"
 PHASE2_WRAPPER="${PROJECT_ROOT}/logs/${RUN_ID}_phase2.sh"
 cat > "$PHASE2_WRAPPER" << PHASE2_EOF
 #!/bin/bash
-#SBATCH -A CASTELNOVO-SL2-GPU
+#SBATCH -A YOUR_ACCOUNT
 #SBATCH --time=12:00:00
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
-#SBATCH -p ampere
+#SBATCH -p YOUR_PARTITION
 
 PROJECT_ROOT="${PROJECT_ROOT}"
 EXPERIMENT="${EXPERIMENT}"
@@ -70,7 +70,7 @@ export PATH="\$HOME/.local/bin:\$PATH"
 export LD_LIBRARY_PATH="/usr/local/software/master/gcc/11/lib64:\${LD_LIBRARY_PATH:-}"
 
 # Load modules
-module load rhel8/default-amp
+# module load <your site base modules>
 module load python
 
 cd "\$PROJECT_ROOT"

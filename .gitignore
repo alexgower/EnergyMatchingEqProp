@@ -32,3 +32,10 @@ results_*/in_paper/**/old/
 results_*/in_paper/**/_check_*
 results_*/in_paper/**/CHANGELOG.md
 SUMMARY_CHANGELOG.md
+# personal / internal notes: never commit (anonymous review mirror)
+OPS_NOTES.md
+**/OPS_NOTES.md
+COLLABORATOR_UPDATE_*.md
+OPEN_QUESTIONS.md
+PAPER_APPENDIX_SOURCE.md
+PAPER_RESULTS_SUMMARY.md

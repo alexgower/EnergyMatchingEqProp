@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH -A CASTELNOVO-SL3-GPU
+#SBATCH -A YOUR_ACCOUNT
 #SBATCH --time=02:00:00
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
-#SBATCH -p ampere
+#SBATCH -p YOUR_PARTITION
 
 #SBATCH --job-name=${RUN_NAME:-"EnergyMatching-GPU-Job"}
 #SBATCH --output=logs/%j_${RUN_NAME}.log
@@ -26,14 +26,14 @@ export PATH="$HOME/.local/bin:$PATH"
 # Compute nodes need GCC 11+ libstdc++ for pot/torchcfm C extensions (GLIBCXX_3.4.29)
 export LD_LIBRARY_PATH="/usr/local/software/master/gcc/11/lib64:${LD_LIBRARY_PATH:-}"
 
-PROJECT_ROOT="/home/apg59/rds/hpc-work/EnergyMatchingEqProp"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"   # run from the repo root
 EXPERIMENT="${EXPERIMENT:-cifar10}"
 NGPUS="${NGPUS:-1}"
 TRAIN_SCRIPT="${PROJECT_ROOT}/experiments/${EXPERIMENT}/train_cifar_multigpu.py"
 
 # ─── Environment setup ─────────────────────────────────────────────────────
-echo "Loading modules for Ampere nodes..."
-module load rhel8/default-amp
+echo "Loading cluster modules (edit for your site)..."
+# module load <your site base modules>
 module load python
 echo "Modules loaded."
 

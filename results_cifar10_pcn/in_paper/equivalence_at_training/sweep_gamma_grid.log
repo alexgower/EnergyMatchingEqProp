@@ -1,5 +1,5 @@
 ######## fp32, gamma grid ########
-ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
+ckpt=results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
 device=cuda dtype=torch.float32 batch=16 N_batch=2
 EP budget: K_h=1 T_free=14 T_nudge=6 beta=30.0 nudge=linear | IFT: K_h=2 n_cg=10
 
@@ -21,42 +21,42 @@ holds and EP is faithful. If cos(ep,ift) stays ~1 but both drift from ffn:
 EP tracks IFT but the small-gamma limit isn't reached. If cos(ep,ift)<1:
 EP relaxation under-converged (raise budget).
 ######## float64, low gamma ########
-ckpt=/home/apg59/rds/hpc-work/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
+ckpt=results_cifar10_pcn/in_paper/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt [net_model] format=ebvit
 device=cuda dtype=torch.float64 batch=8 N_batch=2
 EP budget: K_h=1 T_free=14 T_nudge=6 beta=30.0 nudge=linear | IFT: K_h=2 n_cg=10
 
   entry = pickle.load(f, encoding="latin1")
 Traceback (most recent call last):
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/diag_ep_vs_ift_vs_ffn.py", line 127, in <module>
+  File "experiments/cifar10_pcn/diag_ep_vs_ift_vs_ffn.py", line 127, in <module>
     g_ff = [ffn_grad(*BATCHES[b]) for b in range(N_BATCH)]
             ~~~~~~~~^^^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/diag_ep_vs_ift_vs_ffn.py", line 122, in ffn_grad
+  File "experiments/cifar10_pcn/diag_ep_vs_ift_vs_ffn.py", line 122, in ffn_grad
     v = ffn.velocity(xt, t)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/network_unet.py", line 460, in velocity
+  File "experiments/cifar10_pcn/network_unet.py", line 460, in velocity
     V = self.potential(x, t)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/experiments/cifar10_pcn/network_unet.py", line 439, in potential
+  File "experiments/cifar10_pcn/network_unet.py", line 439, in potential
     unet_out = super().forward(t_dummy, x)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 925, in forward
+  File ".venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 925, in forward
     return super().forward(t, x, y=y)
            ~~~~~~~~~~~~~~~^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 626, in forward
+  File ".venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 626, in forward
     h = module(h, emb)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
     return self._call_impl(*args, **kwargs)
            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
     return forward_call(*args, **kwargs)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 69, in forward
+  File ".venv/lib/python3.14/site-packages/torchcfm/models/unet/unet.py", line 69, in forward
     x = layer(x)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
     return self._call_impl(*args, **kwargs)
            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
     return forward_call(*args, **kwargs)
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/conv.py", line 553, in forward
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/conv.py", line 553, in forward
     return self._conv_forward(input, self.weight, self.bias)
            ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/rds/user/apg59/hpc-work/EnergyMatchingEqProp/.venv/lib/python3.14/site-packages/torch/nn/modules/conv.py", line 548, in _conv_forward
+  File ".venv/lib/python3.14/site-packages/torch/nn/modules/conv.py", line 548, in _conv_forward
     return F.conv2d(
            ~~~~~~~~^
         input, weight, bias, self.stride, self.padding, self.dilation, self.groups

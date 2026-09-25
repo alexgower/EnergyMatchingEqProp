@@ -1,3 +1,60 @@
+# PotentialEP: Backprop-Free Training of CIFAR-Scale Generative Models via Equilibrium Propagation
+
+**Anonymous code for double-blind review (ICLR 2027).** This repository extends
+[Energy Matching](https://arxiv.org/abs/2504.10612) so that the same 50M-parameter
+potential runs as a predictive-coding network (PCN): sampling uses the network's
+relaxation fixed point instead of a backward pass, and training uses equilibrium
+propagation (EP, "PotentialEP") or an implicit-function (IFT) rule instead of
+backpropagation. The upstream Energy Matching README follows unchanged below; the
+commands added for this paper are in
+[Backprop-free training and inference](#backprop-free-training-and-inference-this-fork).
+
+**Environment.** Python >= 3.13 with [uv](https://docs.astral.sh/uv/): `uv sync`
+installs the locked environment (PyTorch 2.10, CUDA 12.8); prefix commands with
+`uv run`. CIFAR-10 is read from `$CIFAR10_PATH` (default `./data`). Clamp strengths
+are in code units, `gamma_code = 1000 * gamma_V` on CIFAR-10 (so `--pcn_gamma=0.1`
+is the paper's `gamma_V = 1e-4`).
+
+**(a) Inference correspondence** (PCN velocity vs the feedforward velocity across
+clamp strength, Section 4.1), one GPU, on any Energy Matching checkpoint:
+
+```bash
+DIAG_CKPT=/PATH/TO/checkpoint.pt DIAG_F64=1 uv run python experiments/cifar10_pcn/in_paper_diag_gamma_grid.py
+```
+
+**(b) PotentialEP phase-1 training** (EP with the linearised nudge, effective batch
+1024 on 2 nodes x 4 GPUs; see Section 3 below for the single-node and IFT variants):
+
+```bash
+uv run torchrun --nnodes=2 --nproc_per_node=4 --rdzv_backend=c10d --rdzv_endpoint=$HEAD_NODE:29513 \
+    experiments/cifar10_pcn/train_cifar_multigpu.py \
+    --model_type=pcn_unet_vit --pcn_error_param --param_grad_mode=ep --nudge_type=linear \
+    --pcn_frozen_dropout=0.1 --pcn_gamma=0.1 --lambda_spring=1.0 --beta=30 \
+    --K_h=1 --T_free=14 --T_nudge=6 --pcn_dt=1.0 --thirdphase --grad_skip_threshold=100 \
+    --batch_size=128 --grad_accum=1 --total_steps=145000 --lr=1.2e-3 --warmup=10000 \
+    --ema_decay=0.9999 --gen_ema --save_step=1000 --output_dir=./results_cifar10_pcn/main/ep_main
+```
+
+**(c) FID** (50k samples, sampling by PCN relaxation, 4 GPUs):
+
+```bash
+uv run torchrun --standalone --nproc_per_node=4 experiments/cifar10_pcn/fid_cifar_heun_multigpu.py \
+    --model_type=pcn_unet_vit --pcn_error_param --param_grad_mode=ift \
+    --pcn_gamma=0.1 --K_h=1 --T_free=14 --pcn_cg_steps=3 --pcn_dt=1.0 \
+    --resume_ckpt=/PATH/TO/checkpoint.pt --use_ema \
+    --fid_n_samples=50000 --fid_times=3.25 --fid_seed=1 \
+    --batch_size=128 --num_workers=4 --dt_gibbs=0.01 --epsilon_max=0.01 --time_cutoff=1.0
+```
+
+Add `--ffn_checkpoint_into_pcn` to load an unmodified (backprop-trained) Energy
+Matching checkpoint into the PCN. Every figure and table has its own directory under
+`results_cifar10_pcn/in_paper/` with the raw logs, an `EXPLANATION.md` giving the
+command and checkpoint behind each number, and a standalone `make_figures.py`.
+Cluster launchers (`launch_job_*.sh`, `submit_mnist_paper.sh`) carry `YOUR_ACCOUNT`
+and `YOUR_PARTITION` placeholders.
+
+---
+
 # Energy Matching 
 <img align="right" src="media/EM_2D.png" width="30%" alt="Energy Matching Illustration" />
 Energy Matching unifies flow matching and energy-based models in a single time-independent scalar field, enabling efficient transport between the source and target distributions while retaining explicit likelihood information for flexible, high-quality generation. [NeurIPS 2025]
