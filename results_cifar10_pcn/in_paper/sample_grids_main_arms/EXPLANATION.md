@@ -22,7 +22,7 @@ arm, the four figures can be read image by image as well as as a whole.
 
 Each arm is sampled from its **phase-2 checkpoint** under **its own native inference**, with EMA
 weights, Euler--Heun via torchsde at dt = 0.01, epsilon_max = 0.01, time_cutoff = 1.0 — i.e. the FID
-protocol of `in_paper_fid_vs_steps_main_arms/`, at each arm's own optimal sampling time.
+protocol of `fid_vs_steps_main_arms/`, at each arm's own optimal sampling time.
 
 All four checkpoints are in `in_paper/`: the backpropagation one in the Sec-4.1 folder that owns it,
 the other three copied (md5-verified) into `in_paper/checkpoints_main_arms/`, whose EXPLANATION lists
@@ -76,5 +76,5 @@ implicit-solve arm; what differs is the checkpoint and the relaxation gamma.
 - These are the phase-2 (post-CD) models. The training-time grids inside each run directory are raw
   (non-EMA) weights at tau_s = 1.0 and are NOT this protocol; do not mix them into the figure.
 - A grid of 128 is not evidence about sample quality — the FIDs in
-  `in_paper_fid_vs_steps_main_arms/` are. The figure's job is to show that the EP arm produces
+  `fid_vs_steps_main_arms/` are. The figure's job is to show that the EP arm produces
   ordinary CIFAR-10 images, not to rank the arms by eye.
