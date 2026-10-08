@@ -67,10 +67,10 @@ for y, lab in [(2.0e-4, "TF32 floor"), (4.2e-7, "fp32 floor")]:
     ax.axhline(y, ls=":", lw=0.7, c="gray")
     ax.text(1.15e-7, y * 1.45, lab, fontsize=7, c="gray")
 ax.set_xlabel(r"$\gamma$")
-ax.set_ylabel(r"relative velocity error $\varepsilon$")
+ax.set_ylabel(r"relative velocity deviation $\varepsilon$")
 ax.legend(fontsize=8, loc="lower right")
 plt.tight_layout()
-plt.savefig(os.path.join(HERE, "figure_A_gamma_floors.png"), dpi=140)
+plt.savefig(os.path.join(HERE, "figure_A_gamma_floors.png"), dpi=140, bbox_inches="tight", pad_inches=0.02)
 plt.close()
 
 # ---- Figure B: K_h budget independence (deadbeat) ----
@@ -85,12 +85,12 @@ for g, c in [(1.0, "tab:purple"), (0.1, "tab:orange"), (0.01, "tab:cyan")]:
     khs = sorted(fp32.keys())
     ax.semilogy(khs, [fp32[k][g] for k in khs], "o-", c=c, label=fr"$\gamma=10^{{{round(math.log10(g/1000.0))}}}$")
 ax.set_xlabel(r"$K_h$ (relaxation sweeps)")
-ax.set_ylabel(r"relative velocity error $\varepsilon$")
+ax.set_ylabel(r"relative velocity deviation $\varepsilon$")
 ax.set_ylim(6e-7, 1e-3)          # headroom so the legend clears the top curve
 ax.legend(fontsize=8, loc="upper right")
 ax.set_xticks([1, 2, 4, 8, 14])
 plt.tight_layout()
-plt.savefig(os.path.join(HERE, "figure_B_kh_flatness.png"), dpi=140)
+plt.savefig(os.path.join(HERE, "figure_B_kh_flatness.png"), dpi=140, bbox_inches="tight", pad_inches=0.02)
 print("regenerated figure_A_gamma_floors.png, figure_B_kh_flatness.png")
 
 # ---- Figure C: how the O(gamma) bias splits between direction and magnitude ----
@@ -135,8 +135,8 @@ gsV = [g / ALPHA for g in gs]
 ax.loglog(gsV, eps, "o-", c="k", label=r"$\epsilon$ (total)")   # == figure A's epsilon when WEIGHTING="nw"
 ax.loglog(gsV, ang, "^-", c="tab:blue", label=r"$\epsilon_\perp$ (direction)")
 ax.loglog(gsV, mag, "s-", c="tab:orange", label=r"$\epsilon_\parallel$ (magnitude)")
-ax.set_xlabel(r"$\gamma$"); ax.set_ylabel(r"relative velocity error")
+ax.set_xlabel(r"$\gamma$"); ax.set_ylabel(r"relative velocity deviation")
 ax.legend(fontsize=8, loc="lower right")
 plt.tight_layout()
-plt.savefig(os.path.join(HERE, "figure_C_direction_vs_magnitude.png"), dpi=140)
+plt.savefig(os.path.join(HERE, "figure_C_direction_vs_magnitude.png"), dpi=140, bbox_inches="tight", pad_inches=0.02)
 print("regenerated figure_C_direction_vs_magnitude.png")
