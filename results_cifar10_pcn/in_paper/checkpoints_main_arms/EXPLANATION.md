@@ -34,7 +34,7 @@ For replication:
 | norm/attention-free | 3.5089 | 5.0 | Table 5, App. samples |
 | backpropagation (Sec. 4.1 folder) | 3.5370 | 3.25 | Table 5, Sec. 4.1, App. samples |
 
-- The evaluation logs behind these FIDs are in `in_paper_fid_vs_steps_main_arms/`.
+- The evaluation logs behind these FIDs are in `fid_vs_steps_main_arms/`.
 - The sample grids drawn from these weights are in `sample_grids_main_arms/`.
 
 ## Reproducing an FID
@@ -99,12 +99,12 @@ under the names below.
   (Sec. 5). The same run's 145k checkpoint, discussed in App. experimental-implementation, is also
   released as `ep_phase1_145000.pt`.
 - **The norm/attention-free arm has no phase-1 row.** Its phase 1 ran a different schedule, to 175k
-  steps (see `in_paper_fid_vs_steps_main_arms/EXPLANATION.md`), so it is not comparable with the others.
+  steps (see `fid_vs_steps_main_arms/EXPLANATION.md`), so it is not comparable with the others.
 
 ## Caveats
 
 - **Phase-1 and phase-2 FIDs are not comparable.** Phase-1 numbers are at τ_s = 1.0; phase-2 numbers are
   at each arm's best τ_s (3.25, or 5.0 for the norm/attention-free arm; see
-  `in_paper_fid_vs_steps_main_arms/tau_sweep/`).
+  `fid_vs_steps_main_arms/tau_sweep/`).
 - **The EP model's sampling γ doesn't matter.** It was trained and evaluated with γ = 3×10⁻⁶, but
   sampling it at the phase-1 γ = 10⁻⁴ gives the same FID (5.72 vs 5.70 on a 10k-sample check).
