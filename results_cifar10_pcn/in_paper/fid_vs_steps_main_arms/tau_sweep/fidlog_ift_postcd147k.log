@@ -1,0 +1,14 @@
+I0920 18:40:39.122605 130699536799552 fid_cifar_heun_1gpu.py:306] Saving logs to: ./results_cifar10_pcn/fid_evals/EM_cifar10_pcn_20260920_18
+I0920 18:40:39.122813 130699536799552 fid_cifar_heun_1gpu.py:307] Using device: cuda
+I0920 18:40:40.663027 130699536799552 fid_cifar_heun_1gpu.py:318] Loading checkpoint: /root/EnergyMatchingEqProp/results_cifar10_pcn/in_paper/checkpoints_main_arms/ift_postcd_147000.pt
+I0920 18:40:42.702927 130699536799552 fid_cifar_heun_1gpu.py:362] Loaded ema_model via PCN->EBViT key remap (405 tensors; train-PCN, infer-FFN).
+I0920 18:40:42.705454 130699536799552 fid_cifar_heun_1gpu.py:373] fid_seed=1 (seed = fid_seed*1000)
+I0920 18:40:44.350305 130699536799552 fid_cifar_heun_1gpu.py:401] Computing real Inception features once...
+I0920 18:41:11.220616 130699536799552 fid_cifar_heun_1gpu.py:422] Generating 2048 fake samples for FID...
+I0920 19:18:19.691154 130699536799552 fid_cifar_heun_1gpu.py:458] Computing final FID scores...
+I0920 19:18:19.732748 130699536799552 fid_cifar_heun_1gpu.py:463] Comparison is based on 50000 real vs 2048 fake samples.
+I0920 19:18:20.149382 130699536799552 fid_cifar_heun_1gpu.py:470] FID at t=2.50 => 16.7235 (real: 50000, fake: 2048)
+I0920 19:18:20.433377 130699536799552 fid_cifar_heun_1gpu.py:470] FID at t=3.00 => 16.4665 (real: 50000, fake: 2048)
+I0920 19:18:20.741333 130699536799552 fid_cifar_heun_1gpu.py:470] FID at t=3.25 => 16.4064 (real: 50000, fake: 2048)
+I0920 19:18:21.032740 130699536799552 fid_cifar_heun_1gpu.py:470] FID at t=3.75 => 16.4778 (real: 50000, fake: 2048)
+I0920 19:18:21.343488 130699536799552 fid_cifar_heun_1gpu.py:470] FID at t=4.50 => 16.9806 (real: 50000, fake: 2048)
