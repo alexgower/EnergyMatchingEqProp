@@ -19,9 +19,9 @@ of each arm, and the phase-1 models at 50k, 100k and 145k training steps.
 | `fid_<arm>_<checkpoint>_<weights>_<value>/` | one folder per evaluation: the evaluation log, with `fid_cifar10.INFO` linking to it |
 | `tau_sweep/` | the sampling-time sweep that set τ_s = 3.25 for the post-CD models |
 
-`uv run python3 make_tables.py` rebuilds both tables, reading only the evaluation logs filed in this folder. It finds each table cell by the
-**checkpoint path recorded in the evaluation log**, then reads the FID from that log, so a cell can only come
-from the run it names. A cell with no matching evaluation prints as `\todo{}`.
+`uv run python3 make_tables.py` rebuilds both tables from the evaluation logs in this folder. Each table
+cell names the record folder its number comes from, and the builder reads the FID out of that folder's log,
+so no number is typed by hand. It stops if a log is missing or is not a 50k-sample evaluation.
 
 ## Table 5: the final models
 
@@ -144,8 +144,8 @@ reproduction commands.
 - **Only evaluations of runs the paper discusses are filed here.** Others are kept outside the release
   (`results_cifar10_pcn/investigations/`).
 - **Filing a new evaluation:** copy its log folder in as `fid_<arm>_<checkpoint>_<weights>_<value>/`, keeping
-  the per-host log and the `fid_cifar10.INFO` link. The builder scans only this folder, so every record a table
-  uses must be filed here; no builder edit is needed.
+  the per-host log and the `fid_cifar10.INFO` link. A new table cell needs one line in `make_tables.py`
+  naming its record folder.
 - **γ is in code units** in every log: γ_code = 1000 × γ_V on CIFAR-10 (`--pcn_gamma=0.1` is the paper's 10⁻⁴).
 - **The 50k evaluations of the backpropagation and implicit-solve 50k-step checkpoints** were copied here from
   `results_cifar10_pcn/fid_main/`, where they were first filed; `fid_ffn_step145000_ema_seed1_6.4242/` and

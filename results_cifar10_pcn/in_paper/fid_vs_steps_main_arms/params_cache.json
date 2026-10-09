@@ -1,6 +1,4 @@
 {
- "checkpoints_authors/cifar10_warm_up_145000.pt": 49985796,
- "results_cifar10_pcn/in_paper/equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_warmup_145000.pt": 49985796,
- "results_cifar10_pcn/strip/ablate_ws_fullstrip192/EM_cifar10_pcn_20260830_19/checkpoint_145000.pt": 78380036,
- "results_cifar10_pcn/strip/ablate_ws192_warmrestart/EM_cifar10_pcn_20260903_04/checkpoint_175000.pt": 78380036
+ "equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_postcd_147000.pt": 49985796,
+ "checkpoints_main_arms/ws192_postcd_177000.pt": 78380036
 }

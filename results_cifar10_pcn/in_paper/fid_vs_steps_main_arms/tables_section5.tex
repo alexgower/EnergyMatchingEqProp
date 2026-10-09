@@ -12,8 +12,7 @@
 % one checkpoint differ by 0.05-0.15 FID, so 2 d.p. is the honest precision
 % and nothing below ~0.2 FID separates two rows.
 % Params are summed from the checkpoints themselves (net_model state_dict),
-% rounded to whole megaparams; exact counts are in make_tables.py's output.
-% \todo{} marks a cell whose run has not landed yet (needs todonotes).
+% rounded to whole megaparams; exact counts are in params_cache.json.
 \midrule
 Energy Matching (our replication) & backprop & 50M & 3.54 ($\tau_s = 3.25$) \\
 PotentialEP & implicit solve & 50M & 3.64 ($\tau_s = 3.25$) \\
