@@ -1,6 +1,6 @@
 # PotentialEP: Backprop-Free Training of CIFAR-Scale Generative Models via Equilibrium Propagation
 
-**Anonymous code for double-blind review (ICLR 2027).** This repository extends
+**Code for PotentialEP: Backprop-Free Training of CIFAR-Scale Generative Models via Equilibrium Propagation (Alex Gower, 2026).** This repository extends
 [Energy Matching](https://arxiv.org/abs/2504.10612) so that the same 50M-parameter
 potential runs as a predictive-coding network (PCN): sampling uses the network's
 relaxation fixed point instead of a backward pass, and training uses equilibrium
