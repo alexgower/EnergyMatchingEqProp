@@ -1,0 +1,9 @@
+I0816 17:52:02.631700 23210742888256 fid_cifar_heun_1gpu.py:265] Saving logs to: ./results_cifar10_pcn/EM_cifar10_pcn_20260816_17
+I0816 17:52:02.632560 23210742888256 fid_cifar_heun_1gpu.py:266] Using device: cuda
+I0816 17:52:03.416310 23210742888256 fid_cifar_heun_1gpu.py:277] Loading checkpoint: results_cifar10_stage0_4gpu_accum1024/EBMTime_20260801_09/checkpoint_50000.pt
+I0816 17:52:04.743464 23210742888256 fid_cifar_heun_1gpu.py:284] Loaded net_model.
+I0816 17:52:05.153593 23210742888256 fid_cifar_heun_1gpu.py:310] Loading cached real features from ./data/fid_real_features_cifar10_50k.pt (skipping real pass)
+I0816 17:52:05.309056 23210742888256 fid_cifar_heun_1gpu.py:334] Generating 50000 fake samples for FID...
+I0816 21:46:39.697303 23210742888256 fid_cifar_heun_1gpu.py:370] Computing final FID scores...
+I0816 21:46:39.757010 23210742888256 fid_cifar_heun_1gpu.py:375] Comparison is based on 50000 real vs 50000 fake samples.
+I0816 21:46:44.605355 23210742888256 fid_cifar_heun_1gpu.py:382] FID at t=1.00 => 12.9693 (real: 50000, fake: 50000)

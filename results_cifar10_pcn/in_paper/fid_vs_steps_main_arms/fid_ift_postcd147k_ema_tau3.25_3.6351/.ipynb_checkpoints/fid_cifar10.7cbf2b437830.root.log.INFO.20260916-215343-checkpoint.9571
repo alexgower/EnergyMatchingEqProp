@@ -1,0 +1,6 @@
+I0916 21:53:43.584516 127486483351360 fid_cifar_heun_multigpu.py:109] [Rank 0] Saving logs to: ./results_cifar10_pcn/fid_evals/EM_cifar10_pcn_20260916_21  world_size=4
+I0916 21:53:45.588266 127486483351360 fid_cifar_heun_multigpu.py:121] [Rank 0] Loading checkpoint: ./results_cifar10_pcn/main/stage2_ift_main_g01_drop01_p2cd_twin_fix/EM_cifar10_pcn_20260916_13/checkpoint_147000.pt
+I0916 21:53:46.452392 127486483351360 fid_cifar_heun_multigpu.py:134] [Rank 0] Loaded ema_model.
+I0916 21:53:46.455945 127486483351360 fid_cifar_heun_multigpu.py:141] [Rank 0] fid_seed=1 (per-rank seed = fid_seed*1000+rank)
+I0916 21:53:48.108000 127486483351360 fid_cifar_heun_multigpu.py:155] [Rank 0] Updating FID with real images (sharded)...
+I0916 21:53:57.432729 127486483351360 fid_cifar_heun_multigpu.py:168] [Rank 0] Each rank generates ~12500 of 50000 fakes (tau_s: [3.25])...
