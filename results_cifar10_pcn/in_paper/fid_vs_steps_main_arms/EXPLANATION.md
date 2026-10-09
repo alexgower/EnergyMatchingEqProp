@@ -141,12 +141,10 @@ reproduction commands.
 
 ## Notes for maintaining this folder
 
-- **Only evaluations of runs the paper discusses are filed here.** Others are kept outside the release
-  (`results_cifar10_pcn/investigations/`).
+- **Only evaluations of runs the paper discusses are filed here.**
 - **Filing a new evaluation:** copy its log folder in as `fid_<arm>_<checkpoint>_<weights>_<value>/`, keeping
   the per-host log and the `fid_cifar10.INFO` link. A new table cell needs one line in `make_tables.py`
   naming its record folder.
 - **γ is in code units** in every log: γ_code = 1000 × γ_V on CIFAR-10 (`--pcn_gamma=0.1` is the paper's 10⁻⁴).
-- **The 50k evaluations of the backpropagation and implicit-solve 50k-step checkpoints** were copied here from
-  `results_cifar10_pcn/fid_main/`, where they were first filed; `fid_ffn_step145000_ema_seed1_6.4242/` and
-  `fid_ffn_postcd147k_ema_tau3.25_seed1_3.5370/` are copies of Sec. 4.1 records. Duplicates count once.
+- **Two records are copies of Sec. 4.1 records:** `fid_ffn_step145000_ema_seed1_6.4242/` and
+  `fid_ffn_postcd147k_ema_tau3.25_seed1_3.5370/`. Duplicates count once.

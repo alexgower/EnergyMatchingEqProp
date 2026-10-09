@@ -156,7 +156,19 @@ CIFAR-10, 100 on MNIST — convert with the run's own α.
 
 ## tau screen behind tau_s = 3.25
 
-`tauscreen_backprop_postcd147k_ema_10k_tau1-10/`: job 35195114 (`in_paper_submit_tau_screen_postcd.sh`,
-2026-09-10), the feedforward sampler on `checkpoint_postcd_147000.pt`, EMA, seed 1, **10k samples** (a ranking
+`tauscreen_backprop_postcd147k_ema_10k_tau1-10/`: job 35195114 (2026-09-10), the feedforward sampler on `checkpoint_postcd_147000.pt`, EMA, seed 1, **10k samples** (a ranking
 screen, not a report-protocol FID). FID at tau 1 / 2 / 3.25 / 4 / 5 / 6.5 / 8 / 10 = 14.90 / 6.46 / **5.61** /
 5.90 / 7.12 / 10.71 / 16.29 / 26.09: the minimum at tau 3.25 is why the post-CD report FIDs use tau_s = 3.25.
+
+From the repo root, 4 GPUs (~2 h on 4 A100s; one trajectory is integrated to the largest tau and
+scored at every listed tau, so all eight FIDs are on the same samples). Note this is the
+`experiments/cifar10/` runner, not the `cifar10_pcn/` one:
+
+```bash
+export CIFAR10_PATH=./data
+uv run torchrun --standalone --nproc_per_node=4 \
+  experiments/cifar10/fid_cifar_heun_multigpu.py \
+  --resume_ckpt=results_cifar10_pcn/in_paper/equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_postcd_147000.pt \
+  --n_samples=10000 --use_ema --fid_times=1.0,2.0,3.25,4.0,5.0,6.5,8.0,10.0 --fid_seed=1 \
+  --batch_size=128 --num_workers=4 --dt_gibbs=0.01 --epsilon_max=0.01 --time_cutoff=1.0
+```

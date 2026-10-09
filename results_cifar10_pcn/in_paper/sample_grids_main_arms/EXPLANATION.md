@@ -48,26 +48,29 @@ removes the question of which subset was chosen.
 
 ## Reproduce
 
-On a 4-GPU box with the repo, CIFAR-10 data and the four checkpoints in place (`/root/run_sample_grids.sh`
-of 2026-09-20; one arm per GPU, ~16 min wall clock on A100s — the PCN arms dominate because every SDE
-step runs a relaxation):
+From the repo root, on a 4-GPU box with CIFAR-10 data and the four checkpoints in place (run
+2026-09-20, one arm per GPU in parallel, ~16 min wall clock on A100s — the PCN arms dominate because
+every SDE step runs a relaxation; the FFN arms take ~100 s). The four commands are independent;
+append `&` to each and `wait` to run them side by side as was done:
 
-    cd experiments/cifar10_pcn
+    export CIFAR10_PATH=./data
+    R=results_cifar10_pcn/in_paper
+    OUT=$R/sample_grids_main_arms
     COMMON="--use_ema --fid_seed=1 --batch_size=128 --dt_gibbs=0.01 --epsilon_max=0.01 \
             --time_cutoff=1.0 --grid_n=128"
-    uv run python3 in_paper_diag_sample_grid.py --model_type=ffn_unet_vit \
-      --resume_ckpt=../equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_postcd_147000.pt --fid_times=3.25 --grid_out=samples_backprop.npy $COMMON
-    uv run python3 in_paper_diag_sample_grid.py --model_type=pcn_unet_vit --pcn_error_param \
+    CUDA_VISIBLE_DEVICES=0 uv run python3 experiments/cifar10_pcn/in_paper_diag_sample_grid.py --model_type=ffn_unet_vit \
+      --resume_ckpt=$R/equivalence_at_inference/in_paper_fid_calculation_train_backprop_infer_pcn/checkpoint_postcd_147000.pt --fid_times=3.25 --grid_out=$OUT/samples_backprop.npy $COMMON
+    CUDA_VISIBLE_DEVICES=1 uv run python3 experiments/cifar10_pcn/in_paper_diag_sample_grid.py --model_type=pcn_unet_vit --pcn_error_param \
       --param_grad_mode=ift --pcn_gamma=0.1 --K_h=2 --T_free=15 --pcn_cg_steps=10 --pcn_dt=1.0 \
-      --resume_ckpt=../checkpoints_main_arms/ift_postcd_147000.pt --fid_times=3.25 --grid_out=samples_ift.npy $COMMON
-    uv run python3 in_paper_diag_sample_grid.py --model_type=pcn_unet_vit --pcn_error_param \
+      --resume_ckpt=$R/checkpoints_main_arms/ift_postcd_147000.pt --fid_times=3.25 --grid_out=$OUT/samples_ift.npy $COMMON
+    CUDA_VISIBLE_DEVICES=2 uv run python3 experiments/cifar10_pcn/in_paper_diag_sample_grid.py --model_type=pcn_unet_vit --pcn_error_param \
       --param_grad_mode=ift --pcn_gamma=0.003 --K_h=2 --T_free=15 --pcn_cg_steps=10 --pcn_dt=1.0 \
-      --resume_ckpt=../checkpoints_main_arms/ep_postcd_102000.pt --fid_times=3.25 --grid_out=samples_ep.npy $COMMON
-    uv run python3 in_paper_diag_sample_grid.py --model_type=ffn_unet_mlp --unet_no_attention \
+      --resume_ckpt=$R/checkpoints_main_arms/ep_postcd_102000.pt --fid_times=3.25 --grid_out=$OUT/samples_ep.npy $COMMON
+    CUDA_VISIBLE_DEVICES=3 uv run python3 experiments/cifar10_pcn/in_paper_diag_sample_grid.py --model_type=ffn_unet_mlp --unet_no_attention \
       --unet_no_norm --unet_ws --mlp_head=flatten --residual_alpha=-1 --num_channels=192 \
-      --resume_ckpt=../checkpoints_main_arms/ws192_postcd_177000.pt --fid_times=5.0 --grid_out=samples_ws192.npy $COMMON
+      --resume_ckpt=$R/checkpoints_main_arms/ws192_postcd_177000.pt --fid_times=5.0 --grid_out=$OUT/samples_ws192.npy $COMMON
 
-then `uv run python3 make_figures.py` here. `param_grad_mode` is inert at inference (no
+then `uv run python3 $OUT/make_figures.py` (it writes beside the .npy files). `param_grad_mode` is inert at inference (no
 gradients are taken w.r.t. parameters), so the EP arm is sampled with the same code path as the
 implicit-solve arm; what differs is the checkpoint and the relaxation gamma.
 
