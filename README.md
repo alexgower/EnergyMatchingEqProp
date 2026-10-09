@@ -372,7 +372,7 @@ from the committed logs using only numpy and matplotlib.
 These currently cover the velocity correspondence as a function of clamp
 strength, relaxation budget and arithmetic precision; the matched-seed FID
 comparison behind the porting claim above; FID against training step for both
-backprop-free arms; and a node-granularity sweep on MNIST. Start from the
+backprop-free arms; and a node-granularity sweep on CIFAR-10. Start from the
 `EXPLANATION.md` in the relevant directory.
 
 
