@@ -1,0 +1,23 @@
+% ===== Sec 5: OUR rows only, no caption (written by hand) =====
+% This fragment is the TAIL of the comparison table: it opens with the
+% \midrule that separates us from the published block and closes with
+% \bottomrule. The tabular preamble, the header row and the five
+% reference rows above it are maintained BY HAND -- those numbers come
+% from other papers and are not verifiable from this repository.
+% The second \midrule sets off the hardware-plausible architecture.
+% Column order assumed: Method & Gradient & Params & FID, i.e. {l l r l}.
+%
+% Every row is post-CD at that model's optimal sampling time, 50,000
+% samples, EMA weights, Stratonovich Euler-Heun at dt 0.01. Repeat draws of
+% one checkpoint differ by 0.05-0.15 FID, so 2 d.p. is the honest precision
+% and nothing below ~0.2 FID separates two rows.
+% Params are summed from the checkpoints themselves (net_model state_dict),
+% rounded to whole megaparams; exact counts are in make_tables.py's output.
+% \todo{} marks a cell whose run has not landed yet (needs todonotes).
+\midrule
+Energy Matching (our replication) & backprop & 50M & 3.54 ($\tau_s = 3.25$) \\
+PotentialEP & implicit solve & 50M & 3.64 ($\tau_s = 3.25$) \\
+PotentialEP & EP & 50M & 3.64 ($\tau_s = 3.25$) \\
+\midrule
+Energy Matching, norm- and attention-free (\S\ref{subsec:hardware}) & backprop & 78M & 3.51 ($\tau_s = 5.0$) \\
+\bottomrule
